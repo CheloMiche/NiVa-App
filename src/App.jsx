@@ -4,7 +4,8 @@ import { compressAndUploadImage } from './imageUtils';
 import { 
   Settings, Tag, Package, Calculator, PlusCircle, Edit3, 
   ShoppingCart, BarChart2, Lock, Unlock, Camera, Upload, 
-  AlertCircle, CheckCircle2, ChevronRight, Layers, Sparkles 
+  AlertCircle, CheckCircle2, ChevronRight, Sparkles, Search, 
+  X, Info, Clock, Weight, Maximize2, Check 
 } from 'lucide-react';
 
 export default function App() {
@@ -18,6 +19,13 @@ export default function App() {
   const [materiales, setMateriales] = useState([]);
   const [categorias, setCategorias] = useState([]);
   const [piezas, setPiezas] = useState([]);
+
+  // Buscador y Cotizador
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedPiezaModal, setSelectedPiezaModal] = useState(null);
+  const [simNivelServicio, setSimNivelServicio] = useState(2);
+  const [simMargenGanancia, setSimMargenGanancia] = useState(50);
+  const [savingEstimativo, setSavingEstimativo] = useState(false);
 
   // Formulario Añadir / Editar
   const [piezasForm, setPiezasForm] = useState({
@@ -81,11 +89,86 @@ export default function App() {
     }
   };
 
+  // FÓRMULA DE CÁLCULO DE COSTO Y PRECIO FINAL (EXCEL)
+  const calcularCostosPieza = (pieza, nivelServicio = 2, margenGanancia = 50) => {
+    if (!pieza || !config) return { costoTotal: 0, precioFinal: 0, subtotal: 0 };
+
+    const material = pieza.materiales || materiales.find(m => m.id === pieza.material_id);
+    const precioKg = material ? parseFloat(material.precio_kg) : 0;
+    
+    // 1. Costo de Material
+    const costoMaterial = (parseFloat(pieza.peso_gramos) / 1000) * precioKg;
+
+    // 2. Tiempo total en horas
+    const tiempoHoras = parseFloat(pieza.horas) + (parseFloat(pieza.minutos) / 60);
+
+    // 3. Costo de Energía
+    const costoEnergia = tiempoHoras * parseFloat(config.consumo_impresora_kw) * parseFloat(config.precio_energia_kwh);
+
+    // 4. Amortización
+    const costoAmortizacion = config.vida_util_horas > 0 
+      ? (parseFloat(config.precio_impresora) / parseFloat(config.vida_util_horas)) * tiempoHoras 
+      : 0;
+
+    // 5. Costo de Servicio (Servicio 1 = base, Servicio 2 = 2x, etc.)
+    const costoServicio = tiempoHoras * parseFloat(config.costo_servicio_hora) * parseFloat(nivelServicio);
+
+    // Subtotal
+    const subtotal = costoMaterial + costoEnergia + costoAmortizacion + costoServicio;
+
+    // Precio Final con Margen
+    const precioFinal = subtotal * (1 + parseFloat(margenGanancia) / 100);
+
+    return {
+      costoMaterial,
+      costoEnergia,
+      costoAmortizacion,
+      costoServicio,
+      subtotal,
+      precioFinal: Math.round(precioFinal)
+    };
+  };
+
+  const abrirModalCotizar = (p) => {
+    setSelectedPiezaModal(p);
+    setSimNivelServicio(p.nivel_servicio_estimativo || 2);
+    setSimMargenGanancia(p.margen_ganancia_estimativo || 50);
+  };
+
+  const guardarValorEstimativo = async () => {
+    if (!selectedPiezaModal) return;
+    try {
+      setSavingEstimativo(true);
+      const { error } = await supabase
+        .from('piezas')
+        .update({
+          nivel_servicio_estimativo: parseInt(simNivelServicio, 10),
+          margen_ganancia_estimativo: parseFloat(simMargenGanancia)
+        })
+        .eq('id', selectedPiezaModal.id);
+
+      if (!error) {
+        setSuccessMsg('¡Nuevo precio estimativo fijado!');
+        cargarDatos();
+        setTimeout(() => setSuccessMsg(''), 3000);
+      }
+    } finally {
+      setSavingEstimativo(false);
+    }
+  };
+
+  // FILTRADO DE PIEZAS EN LA GRILLA
+  const piezasFiltradas = piezas.filter(p => {
+    const term = searchTerm.toLowerCase();
+    const tituloMatch = p.titulo.toLowerCase().includes(term);
+    const codigoMatch = p.codigo.toLowerCase().includes(term);
+    const catMatch = p.categorias?.nombre?.toLowerCase().includes(term);
+    return tituloMatch || codigoMatch || catMatch;
+  });
+
   const handleCategoriaChange = (catId) => {
     setPiezasForm({ ...piezasForm, categoria_id: catId });
-    if (!piezasForm.id) {
-      obtenerCodigoCategoria(catId);
-    }
+    if (!piezasForm.id) obtenerCodigoCategoria(catId);
   };
 
   const handleImageUpload = async (e) => {
@@ -117,7 +200,6 @@ export default function App() {
     e.preventDefault();
     if (!validarFormulario()) return;
 
-    // Obtener número correlativo del código generado
     let numCorrelativo = 1;
     if (codigoGenerado) {
       const parts = codigoGenerado.split('-');
@@ -139,8 +221,6 @@ export default function App() {
     };
 
     if (piezasForm.id) {
-      // EDITAR PIEZA
-      // Si cambió de categoría, regenerar código
       const piezaOriginal = piezas.find(p => p.id === piezasForm.id);
       if (piezaOriginal.categoria_id !== piezasForm.categoria_id) {
         const { data } = await supabase.rpc('obtener_siguiente_codigo', { p_categoria_id: piezasForm.categoria_id });
@@ -158,7 +238,6 @@ export default function App() {
         setTimeout(() => setSuccessMsg(''), 3000);
       } else alert(error.message);
     } else {
-      // CREAR NUEVA PIEZA
       payload.codigo = codigoGenerado;
       payload.numero_correlativo = numCorrelativo;
 
@@ -287,10 +366,10 @@ export default function App() {
         </button>
       </header>
 
-      {/* CONTENIDO CONTENEDOR */}
+      {/* CONTENIDO PRINCIPAL */}
       <main className="flex-1 p-4 max-w-md mx-auto w-full">
         
-        {/* SWAP PESTAÑAS ADMIN / USUARIO */}
+        {/* NAVEGACIÓN SECUNDARIA ADMIN */}
         {isAdmin && (
           <div className="mb-5 bg-slate-900 p-1 rounded-xl border border-slate-800 flex justify-around">
             <button
@@ -316,23 +395,218 @@ export default function App() {
           </div>
         )}
 
-        {/* ALERTA ERRORES FORMULARIO */}
-        {formErrors.length > 0 && (
-          <div className="mb-4 bg-rose-500/10 border border-rose-500/30 p-3 rounded-xl space-y-1 text-rose-300 text-xs">
-            <div className="flex items-center space-x-1.5 font-bold">
-              <AlertCircle className="w-4 h-4" />
-              <span>Por favor completa los datos obligatorios:</span>
+        {/* PESTAÑA: COTIZAR PIEZA (GRILLA 2X3 + BUSCADOR) */}
+        {activeTab === 'cotizar' && (
+          <div className="space-y-4">
+            
+            {/* BUSCADOR */}
+            <div className="relative">
+              <Search className="w-4 h-4 absolute left-3.5 top-3.5 text-slate-500" />
+              <input
+                type="text"
+                placeholder="Buscar por nombre, código o categoría..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-800 rounded-2xl pl-10 pr-4 py-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition"
+              />
+              {searchTerm && (
+                <button onClick={() => setSearchTerm('')} className="absolute right-3.5 top-3.5 text-slate-500 hover:text-white">
+                  <X className="w-4 h-4" />
+                </button>
+              )}
             </div>
-            <ul className="list-disc list-inside pl-1 text-[11px] text-rose-200">
-              {formErrors.map((err, idx) => (
-                <li key={idx}>{err}</li>
-              ))}
-            </ul>
+
+            {/* GRILLA RESPONSIVE 2 COLUMNAS (3 FILAS VISIBLES SCROLLABLE) */}
+            <div className="grid grid-cols-2 gap-3 max-h-[calc(100vh-210px)] overflow-y-auto pr-1">
+              {piezasFiltradas.length === 0 ? (
+                <div className="col-span-2 text-center py-12 text-slate-500 text-xs">
+                  No se encontraron piezas en el catálogo.
+                </div>
+              ) : (
+                piezasFiltradas.map((p) => {
+                  const estimativo = calcularCostosPieza(
+                    p, 
+                    p.nivel_servicio_estimativo || 2, 
+                    p.margen_ganancia_estimativo || 50
+                  );
+
+                  return (
+                    <div
+                      key={p.id}
+                      onClick={() => abrirModalCotizar(p)}
+                      className="bg-slate-900 border border-slate-800 hover:border-emerald-500/50 rounded-2xl overflow-hidden flex flex-col justify-between cursor-pointer transition group shadow-md"
+                    >
+                      {/* IMAGEN DE PORTADA */}
+                      <div className="relative w-full aspect-square bg-slate-950 flex items-center justify-center overflow-hidden">
+                        {p.imagen_principal_url ? (
+                          <img src={p.imagen_principal_url} alt={p.titulo} className="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
+                        ) : (
+                          <Package className="w-10 h-10 text-slate-700" />
+                        )}
+
+                        <span className="absolute top-2 left-2 bg-slate-950/80 backdrop-blur-sm text-emerald-400 font-mono text-[10px] font-bold px-2 py-0.5 rounded-md border border-slate-800">
+                          {p.codigo}
+                        </span>
+
+                        {p.es_multicolor && (
+                          <span className="absolute top-2 right-2 bg-amber-500/20 text-amber-300 p-1 rounded-md border border-amber-500/30">
+                            <Sparkles className="w-3 h-3" />
+                          </span>
+                        )}
+                      </div>
+
+                      {/* INFORMACIÓN Y PRECIO ESTIMATIVO */}
+                      <div className="p-2.5 space-y-1">
+                        <span className="text-[9px] uppercase font-bold tracking-wider text-slate-500 block truncate">
+                          {p.categorias?.nombre || 'General'}
+                        </span>
+                        <h3 className="text-xs font-semibold text-slate-200 group-hover:text-emerald-300 transition line-clamp-1">
+                          {p.titulo}
+                        </h3>
+                        <div className="pt-1 flex items-baseline justify-between border-t border-slate-800/80">
+                          <span className="text-[10px] text-slate-400">Estimado</span>
+                          <span className="text-sm font-extrabold text-emerald-400 font-mono">
+                            ${estimativo.precioFinal.toLocaleString()}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
           </div>
         )}
 
-        {/* PESTAÑA: AÑADIR / EDITAR PIEZA */}
-        {(activeTab === 'anadir' || piezasForm.id) && (
+        {/* MODAL FICHA TÉCNICA Y SIMULADOR DE COTIZACIÓN */}
+        {selectedPiezaModal && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
+            <div className="bg-slate-900 border border-slate-800 rounded-t-3xl sm:rounded-3xl max-w-md w-full max-h-[90vh] overflow-y-auto p-5 space-y-4 shadow-2xl">
+              
+              {/* HEADER MODAL */}
+              <div className="flex justify-between items-start border-b border-slate-800 pb-3">
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-950 border border-emerald-800 px-2 py-0.5 rounded">
+                      {selectedPiezaModal.codigo}
+                    </span>
+                    <span className="text-xs text-slate-400">{selectedPiezaModal.categorias?.nombre}</span>
+                  </div>
+                  <h3 className="text-base font-bold text-white mt-1">{selectedPiezaModal.titulo}</h3>
+                </div>
+                <button
+                  onClick={() => setSelectedPiezaModal(null)}
+                  className="bg-slate-800 text-slate-400 hover:text-white p-1.5 rounded-full"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* FOTO REPRESENTATIVA */}
+              {selectedPiezaModal.imagen_principal_url && (
+                <div className="w-full h-40 rounded-2xl bg-slate-950 border border-slate-800 overflow-hidden">
+                  <img src={selectedPiezaModal.imagen_principal_url} alt="Vista" className="w-full h-full object-cover" />
+                </div>
+              )}
+
+              {/* FICHA TÉCNICA */}
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 flex items-center space-x-2">
+                  <Weight className="w-4 h-4 text-emerald-400" />
+                  <div>
+                    <span className="text-[10px] text-slate-500 block">Peso</span>
+                    <span className="font-semibold text-slate-200">{selectedPiezaModal.peso_gramos} g</span>
+                  </div>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 flex items-center space-x-2">
+                  <Clock className="w-4 h-4 text-emerald-400" />
+                  <div>
+                    <span className="text-[10px] text-slate-500 block">Tiempo</span>
+                    <span className="font-semibold text-slate-200">{selectedPiezaModal.horas}h {selectedPiezaModal.minutos}m</span>
+                  </div>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 flex items-center space-x-2">
+                  <Tag className="w-4 h-4 text-emerald-400" />
+                  <div>
+                    <span className="text-[10px] text-slate-500 block">Material</span>
+                    <span className="font-semibold text-slate-200">{selectedPiezaModal.materiales?.nombre}</span>
+                  </div>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 flex items-center space-x-2">
+                  <Maximize2 className="w-4 h-4 text-emerald-400" />
+                  <div>
+                    <span className="text-[10px] text-slate-500 block">Dimensiones</span>
+                    <span className="font-semibold text-slate-200">
+                      {selectedPiezaModal.ancho_cm || '-'} × {selectedPiezaModal.alto_cm || '-'} × {selectedPiezaModal.profundidad_cm || '-'} cm
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* CONTROLES DEL SIMULADOR DE PRECIO */}
+              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
+                <h4 className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                  <Calculator className="w-4 h-4 text-emerald-400" /> Simular Cotización
+                </h4>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] text-slate-400 block mb-1">Nivel de Servicio</label>
+                    <select
+                      value={simNivelServicio}
+                      onChange={(e) => setSimNivelServicio(parseInt(e.target.value, 10))}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-xs text-white"
+                    >
+                      <option value={1}>1 - Básico</option>
+                      <option value={2}>2 - Estándar</option>
+                      <option value={3}>3 - Express / Premium</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-slate-400 block mb-1">Margen Ganancia (%)</label>
+                    <input
+                      type="number"
+                      value={simMargenGanancia}
+                      onChange={(e) => setSimMargenGanancia(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-xs text-white text-center font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* RESULTADO PRECIO CALCULADO */}
+                {(() => {
+                  const res = calcularCostosPieza(selectedPiezaModal, simNivelServicio, simMargenGanancia);
+                  return (
+                    <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between">
+                      <div>
+                        <span className="text-[10px] text-slate-500 block">Subtotal Costo: ${Math.round(res.subtotal).toLocaleString()}</span>
+                        <span className="text-xs font-bold text-slate-300">Precio Sugerido</span>
+                      </div>
+                      <span className="text-2xl font-extrabold text-emerald-400 font-mono">
+                        ${res.precioFinal.toLocaleString()}
+                      </span>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* BOTÓN FIJAR COMO PRECIO ESTIMATIVO */}
+              <button
+                onClick={guardarValorEstimativo}
+                disabled={savingEstimativo}
+                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl text-xs flex items-center justify-center space-x-2 transition shadow-lg shadow-emerald-950/50"
+              >
+                <Check className="w-4 h-4" />
+                <span>Establecer como Precio Estimativo</span>
+              </button>
+
+            </div>
+          </div>
+        )}
+
+        {/* PESTAÑA: AÑADIR PIEZA */}
+        {(activeTab === 'anadir' || (piezasForm.id && activeTab !== 'editar')) && (
           <div className="space-y-5">
             <div className="flex justify-between items-center">
               <div>
@@ -350,12 +624,8 @@ export default function App() {
             </div>
 
             <form onSubmit={guardarPieza} className="space-y-4">
-              
-              {/* TÍTULO DEL DISEÑO */}
               <div>
-                <label className="text-xs font-medium text-slate-300 block mb-1">
-                  Nombre del Diseño / Pieza *
-                </label>
+                <label className="text-xs font-medium text-slate-300 block mb-1">Nombre del Diseño / Pieza *</label>
                 <input
                   type="text"
                   placeholder="Ej: Soporte Auriculares Gridfinity"
@@ -367,7 +637,6 @@ export default function App() {
                 />
               </div>
 
-              {/* SELECCIÓN CATEGORÍA Y MATERIAL */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-slate-300 block mb-1">Categoría</label>
@@ -395,7 +664,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* CAMPOS OBLIGATORIOS (ROJO): PESO Y TIEMPO */}
               <div className="bg-slate-900/60 p-3.5 rounded-2xl border border-rose-500/30 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-rose-400 flex items-center gap-1">
@@ -440,7 +708,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* IMAGEN Y CÁMARA */}
               <div>
                 <label className="text-xs font-medium text-slate-300 block mb-1">Foto Representativa</label>
                 <div className="flex gap-3 items-center">
@@ -475,7 +742,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* CARACTERÍSTICAS OPCIONALES: DIMENSIONES */}
               <div className="bg-slate-900 p-3.5 rounded-2xl border border-slate-800 space-y-2">
                 <span className="text-xs font-medium text-slate-400 block">Dimensiones (Opcional)</span>
                 <div className="grid grid-cols-3 gap-2">
@@ -506,7 +772,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* TOGGLE MULTICOLOR */}
               <div className="flex items-center justify-between bg-slate-900 p-3.5 rounded-2xl border border-slate-800">
                 <div className="flex items-center space-x-2">
                   <Sparkles className="w-4 h-4 text-amber-400" />
@@ -521,7 +786,6 @@ export default function App() {
                 </button>
               </div>
 
-              {/* BOTONES DE ACCIÓN */}
               <div className="flex gap-2 pt-2">
                 {piezasForm.id && (
                   <button
@@ -544,7 +808,7 @@ export default function App() {
           </div>
         )}
 
-        {/* PESTAÑA: EDITAR PIEZA (SELECCIONAR DE LISTA) */}
+        {/* PESTAÑA: EDITAR PIEZA */}
         {activeTab === 'editar' && !piezasForm.id && (
           <div className="space-y-4">
             <div>
@@ -757,7 +1021,7 @@ export default function App() {
         </div>
       )}
 
-      {/* NAVEGACIÓN INFERIOR (BARRA MÓVIL PWA) */}
+      {/* NAVEGACIÓN INFERIOR PWA */}
       <nav className="fixed bottom-0 left-0 right-0 bg-slate-900/90 backdrop-blur-lg border-t border-slate-800 py-2 px-3 flex justify-around items-center z-40">
         <button
           onClick={() => setActiveTab('cotizar')}
