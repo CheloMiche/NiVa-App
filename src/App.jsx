@@ -5,13 +5,12 @@ import {
   Settings, Tag, Package, Calculator, PlusCircle, Edit3, 
   ShoppingCart, BarChart2, Lock, Unlock, Camera, Upload, 
   AlertCircle, CheckCircle2, ChevronRight, Sparkles, Search, 
-  X, Clock, Weight, Maximize2, Check, UserCheck, DollarSign, Wallet, KeyRound, Trash2 
+  X, Clock, Weight, Maximize2, Check, UserCheck, DollarSign, Wallet, KeyRound, Trash2,
+  ClipboardList, CheckSquare, Square, Wrench, User
 } from 'lucide-react';
 
 export default function App() {
-  // =========================================================================
-  // CLAVES Y PINS DE ACCESO (PIN Usuario: '3130' | PIN Admin: '1001')
-  // =========================================================================
+  // CLAVES Y PINS (PIN Usuario: '3130' | PIN Admin: '1001')
   const [isUserAuthenticated, setIsUserAuthenticated] = useState(false);
   const [userPinInput, setUserPinInput] = useState('');
   
@@ -19,7 +18,7 @@ export default function App() {
   const [adminPinInput, setAdminPinInput] = useState('');
   const [showAdminModal, setShowAdminModal] = useState(false);
   
-  const [activeTab, setActiveTab] = useState('cotizar');
+  const [activeTab, setActiveTab] = useState('pedidos');
 
   // Estados Base
   const [config, setConfig] = useState(null);
@@ -27,13 +26,23 @@ export default function App() {
   const [categorias, setCategorias] = useState([]);
   const [piezas, setPiezas] = useState([]);
   const [ventas, setVentas] = useState([]);
+  const [pedidos, setPedidos] = useState([]);
 
   // Buscador y Cotizador
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPiezaModal, setSelectedPiezaModal] = useState(null);
-  const [simNivelServicio, setSimNivelServicio] = useState(2); // 1: Básico, 2: Estándar, 3: Premium
-  const [simMargenGanancia, setSimMargenGanancia] = useState(50); // Margen en pasos de a 10
+  const [simNivelServicio, setSimNivelServicio] = useState(2);
+  const [simMargenGanancia, setSimMargenGanancia] = useState(50);
   const [savingEstimativo, setSavingEstimativo] = useState(false);
+
+  // Formulario Pedidos
+  const [pedidoForm, setPedidoForm] = useState({
+    recibido_por: 'Papi',
+    tipo_pieza: 'existente', // 'existente' o 'nuevo'
+    pieza_id: '',
+    descripcion_nuevo: '',
+    colores_solicitados: ''
+  });
 
   // Formulario Añadir / Editar Pieza
   const [piezasForm, setPiezasForm] = useState({
@@ -51,12 +60,12 @@ export default function App() {
     es_multicolor: false
   });
 
-  // Formulario Venta
+  // Formulario Venta (Con Fabricante)
   const [ventaForm, setVentaForm] = useState({
     pieza_id: '',
     vendedor: 'Papi',
-    precio_cobrado: '',
-    con_comision: true
+    fabricante: 'NiVa', // 'Nico', 'Valen' o 'NiVa'
+    precio_cobrado: ''
   });
 
   const [codigoGenerado, setCodigoGenerado] = useState('');
@@ -75,9 +84,8 @@ export default function App() {
   const cargarDatos = async () => {
     try {
       const { data: cfg } = await supabase.from('config_global').select('*');
-      if (cfg && cfg.length > 0) {
-        setConfig(cfg[0]);
-      } else {
+      if (cfg && cfg.length > 0) setConfig(cfg[0]);
+      else {
         setConfig({
           id: 1,
           precio_energia_kwh: 250,
@@ -96,10 +104,7 @@ export default function App() {
         setMateriales(mat);
         const plaMat = mat.find(m => m.nombre.toUpperCase() === 'PLA');
         defaultMaterialId = plaMat ? plaMat.id : (mat[0]?.id || '');
-        
-        if (!piezasForm.material_id) {
-          setPiezasForm(prev => ({ ...prev, material_id: defaultMaterialId }));
-        }
+        if (!piezasForm.material_id) setPiezasForm(prev => ({ ...prev, material_id: defaultMaterialId }));
       }
 
       const { data: cat } = await supabase.from('categorias').select('*').order('nombre');
@@ -126,6 +131,9 @@ export default function App() {
       const { data: vts } = await supabase.from('ventas').select('*, piezas(*)').order('created_at', { ascending: false });
       if (vts) setVentas(vts);
 
+      const { data: pds } = await supabase.from('pedidos').select('*, piezas(*)').order('created_at', { ascending: false });
+      if (pds) setPedidos(pds);
+
     } catch (error) {
       console.error('Error cargando datos:', error);
     }
@@ -140,7 +148,7 @@ export default function App() {
   };
 
   const calcularCostosPieza = (pieza, nivelServicio = 2, margenGanancia = 50, listaMats = materiales) => {
-    if (!pieza || !config) return { costoTotal: 0, precioFinal: 0, subtotal: 0 };
+    if (!pieza || !config) return { costoMaterial: 0, costoEnergia: 0, costoAmortizacion: 0, costoServicio: 0, subtotal: 0, precioFinal: 0, montoGanancia: 0 };
 
     const material = pieza.materiales || (listaMats || materiales).find(m => m.id === pieza.material_id);
     const precioKg = material ? parseFloat(material.precio_kg) : 0;
@@ -152,16 +160,16 @@ export default function App() {
       ? (parseFloat(config.precio_impresora) / parseFloat(config.vida_util_horas)) * tiempoHoras 
       : 0;
 
-    let tarifaServicioHora = parseFloat(config.costo_servicio_estandar || config.costo_servicio_hora || 1500);
-    if (parseInt(nivelServicio, 10) === 1) {
-      tarifaServicioHora = parseFloat(config.costo_servicio_basico || 1000);
-    } else if (parseInt(nivelServicio, 10) === 3) {
-      tarifaServicioHora = parseFloat(config.costo_servicio_premium || 2500);
-    }
+    let tarifaServicioHora = parseFloat(config.costo_servicio_estandar || 1500);
+    if (parseInt(nivelServicio, 10) === 1) tarifaServicioHora = parseFloat(config.costo_servicio_basico || 1000);
+    else if (parseInt(nivelServicio, 10) === 3) tarifaServicioHora = parseFloat(config.costo_servicio_premium || 2500);
 
     const costoServicio = tiempoHoras * tarifaServicioHora;
     const subtotal = costoMaterial + costoEnergia + costoAmortizacion + costoServicio;
-    const precioFinal = subtotal * (1 + parseFloat(margenGanancia) / 100);
+    
+    // El margen se aplica directo sobre el subtotal
+    const montoGanancia = subtotal * (parseFloat(margenGanancia) / 100);
+    const precioFinal = subtotal + montoGanancia;
 
     return {
       costoMaterial,
@@ -169,8 +177,125 @@ export default function App() {
       costoAmortizacion,
       costoServicio,
       subtotal,
+      montoGanancia,
       precioFinal: Math.round(precioFinal)
     };
+  };
+
+  // REGISTRO DE NUEVO PEDIDO
+  const registrarPedido = async (e) => {
+    e.preventDefault();
+    const payload = {
+      recibido_por: pedidoForm.recibido_por,
+      pieza_id: pedidoForm.tipo_pieza === 'existente' ? pedidoForm.pieza_id : null,
+      descripcion_nuevo: pedidoForm.tipo_pieza === 'nuevo' ? pedidoForm.descripcion_nuevo : null,
+      colores_solicitados: pedidoForm.colores_solicitados,
+      completado: false
+    };
+
+    const { error } = await supabase.from('pedidos').insert([payload]);
+    if (!error) {
+      setSuccessMsg('¡Pedido guardado en la lista!');
+      setPedidoForm({ recibido_por: 'Papi', tipo_pieza: 'existente', pieza_id: '', descripcion_nuevo: '', colores_solicitados: '' });
+      cargarDatos();
+      setTimeout(() => setSuccessMsg(''), 3000);
+    } else alert(error.message);
+  };
+
+  const togglePedidoEstado = async (id, estadoActual) => {
+    const { error } = await supabase.from('pedidos').update({ completado: !estadoActual }).eq('id', id);
+    if (!error) cargarDatos();
+  };
+
+  // REGISTRO DE VENTA Y REPARTO
+  const registrarVenta = async (e) => {
+    e.preventDefault();
+    if (!ventaForm.pieza_id || !ventaForm.precio_cobrado) return;
+
+    const piezaSel = piezas.find(p => p.id === ventaForm.pieza_id);
+    const calc = calcularCostosPieza(piezaSel, piezaSel.nivel_servicio_estimativo || 2, piezaSel.margen_ganancia_estimativo || 50);
+
+    const precioCobrado = parseFloat(ventaForm.precio_cobrado);
+    
+    // Costo Base Insumos (Material + Energía + Amortización) -> Va directo a Caja NiVa
+    const costoInsumos = calc.costoMaterial + calc.costoEnergia + calc.costoAmortizacion;
+    const montoServicio = calc.costoServicio;
+    
+    // El vendedor se lleva todo lo que cobró por encima del subtotal real
+    const gananciaVendedor = precioCobrado > calc.subtotal ? (precioCobrado - calc.subtotal) : calc.montoGanancia;
+
+    const { error } = await supabase.from('ventas').insert([{
+      pieza_id: ventaForm.pieza_id,
+      vendedor: ventaForm.vendedor,
+      fabricante: ventaForm.fabricante,
+      precio_cobrado: precioCobrado,
+      costo_insumos: costoInsumos,
+      costo_servicio: montoServicio,
+      monto_ganancia_vendedor: gananciaVendedor,
+      liquidado: false
+    }]);
+
+    if (!error) {
+      setSuccessMsg('¡Venta registrada con éxito!');
+      cargarDatos();
+      setTimeout(() => setSuccessMsg(''), 3000);
+    } else alert(error.message);
+  };
+
+  const handleSeleccionPiezaVenta = (pId) => {
+    const pSel = piezas.find(p => p.id === pId);
+    if (pSel) {
+      const calc = calcularCostosPieza(pSel, pSel.nivel_servicio_estimativo || 2, pSel.margen_ganancia_estimativo || 50);
+      setVentaForm({ ...ventaForm, pieza_id: pId, precio_cobrado: calc.precioFinal });
+    }
+  };
+
+  // CÁLCULO DE ACUMULADOS PARA STATS (SOLO VENTAS PENDIENTES DE LIQUIDAR)
+  const resumenStats = () => {
+    const acumulados = {
+      Papi: 0,
+      Nadia: 0,
+      Valen: 0,
+      Nico: 0,
+      NiVa: 0,
+      totalVentas: 0
+    };
+
+    ventas.filter(v => !v.liquidado).forEach(v => {
+      acumulados.totalVentas += parseFloat(v.precio_cobrado || 0);
+
+      // 1. Ganancia Comercial al Vendedor
+      const vend = v.vendedor;
+      if (acumulados[vend] !== undefined) {
+        acumulados[vend] += parseFloat(v.monto_ganancia_vendedor || 0);
+      }
+
+      // 2. Costo de Servicio al Fabricante (Si es Nico o Valen)
+      const fab = v.fabricante || 'NiVa';
+      if (fab === 'Nico' || fab === 'Valen') {
+        acumulados[fab] += parseFloat(v.costo_servicio || 0);
+      } else {
+        // Si fabrica NiVa, el servicio va a la empresa
+        acumulados.NiVa += parseFloat(v.costo_servicio || 0);
+      }
+
+      // 3. Insumos siempre van a NiVa
+      acumulados.NiVa += parseFloat(v.costo_insumos || 0);
+    });
+
+    return acumulados;
+  };
+
+  // BOTÓN DE LIQUIDAR CAJA Y REPARTIR ACUMULADOS
+  const liquidarCaja = async () => {
+    if (window.confirm('¿Deseas liquidar el período actual? Las cuentas acumuladas de todos volverán a cero.')) {
+      const { error } = await supabase.from('ventas').update({ liquidado: true }).eq('liquidado', false);
+      if (!error) {
+        setSuccessMsg('¡Caja distribuida y saldos reseteados a cero!');
+        cargarDatos();
+        setTimeout(() => setSuccessMsg(''), 3000);
+      } else alert(error.message);
+    }
   };
 
   const abrirModalCotizar = (p) => {
@@ -199,64 +324,6 @@ export default function App() {
     } finally {
       setSavingEstimativo(false);
     }
-  };
-
-  const registrarVenta = async (e) => {
-    e.preventDefault();
-    if (!ventaForm.pieza_id || !ventaForm.precio_cobrado) return;
-
-    const piezaSel = piezas.find(p => p.id === ventaForm.pieza_id);
-    const calc = calcularCostosPieza(piezaSel, piezaSel.nivel_servicio_estimativo || 2, piezaSel.margen_ganancia_estimativo || 50);
-
-    const costoBase = calc.subtotal;
-    const precioFinal = parseFloat(ventaForm.precio_cobrado);
-    const gananciaBruta = precioFinal - costoBase;
-
-    let montoComision = 0;
-    let montoNiva = precioFinal;
-
-    if (ventaForm.con_comision && gananciaBruta > 0) {
-      montoComision = gananciaBruta * 0.5;
-      montoNiva = costoBase + (gananciaBruta * 0.5);
-    }
-
-    const { error } = await supabase.from('ventas').insert([{
-      pieza_id: ventaForm.pieza_id,
-      vendedor: ventaForm.vendedor,
-      precio_cobrado: precioFinal,
-      costo_calculado: costoBase,
-      monto_niva: montoNiva,
-      monto_comision: montoComision,
-      con_comision: ventaForm.con_comision
-    }]);
-
-    if (!error) {
-      setSuccessMsg('¡Venta registrada con éxito!');
-      cargarDatos();
-      setTimeout(() => setSuccessMsg(''), 3000);
-    } else alert(error.message);
-  };
-
-  const handleSeleccionPiezaVenta = (pId) => {
-    const pSel = piezas.find(p => p.id === pId);
-    if (pSel) {
-      const calc = calcularCostosPieza(pSel, pSel.nivel_servicio_estimativo || 2, pSel.margen_ganancia_estimativo || 50);
-      setVentaForm({ ...ventaForm, pieza_id: pId, precio_cobrado: calc.precioFinal });
-    }
-  };
-
-  const resumenStats = () => {
-    let totalIngresos = 0;
-    let totalNiva = 0;
-    let totalComisiones = 0;
-
-    ventas.forEach(v => {
-      totalIngresos += parseFloat(v.precio_cobrado || 0);
-      totalNiva += parseFloat(v.monto_niva || 0);
-      totalComisiones += parseFloat(v.monto_comision || 0);
-    });
-
-    return { totalIngresos, totalNiva, totalComisiones, totalUnidades: ventas.length };
   };
 
   const piezasFiltradas = piezas.filter(p => {
@@ -392,7 +459,6 @@ export default function App() {
     setFormErrors([]);
   };
 
-  // VALIDACIÓN PIN USUARIOS (3130)
   const handleUserAuth = (e) => {
     e.preventDefault();
     if (userPinInput === '3130') {
@@ -401,7 +467,6 @@ export default function App() {
     } else alert('PIN Incorrecto');
   };
 
-  // VALIDACIÓN PIN ADMIN (1001)
   const handleAdminAuth = (e) => {
     e.preventDefault();
     if (adminPinInput === '1001') {
@@ -429,7 +494,6 @@ export default function App() {
     else alert(error.message);
   };
 
-  // GESTIÓN MATERIALES (CREAR, EDITAR, ELIMINAR)
   const agregarMaterial = async (e) => {
     e.preventDefault();
     if (!nuevoMaterial.nombre || !nuevoMaterial.precio_kg) return;
@@ -456,7 +520,6 @@ export default function App() {
     }
   };
 
-  // GESTIÓN CATEGORÍAS (CREAR, EDITAR, ELIMINAR)
   const agregarCategoria = async (e) => {
     e.preventDefault();
     if (!nuevaCategoria.nombre || !nuevaCategoria.prefijo) return;
@@ -485,7 +548,6 @@ export default function App() {
 
   const stats = resumenStats();
 
-  // BLOQUEO INICIAL CON PIN 3130
   if (!isUserAuthenticated) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4 font-sans">
@@ -541,7 +603,7 @@ export default function App() {
           onClick={() => {
             if (isAdmin) {
               setIsAdmin(false);
-              if (activeTab === 'admin') setActiveTab('cotizar');
+              if (activeTab === 'admin') setActiveTab('pedidos');
             } else {
               setShowAdminModal(true);
             }
@@ -568,202 +630,126 @@ export default function App() {
           </div>
         )}
 
-        {/* PESTAÑA: ADMIN */}
-        {activeTab === 'admin' && isAdmin && (
-          <div className="space-y-5">
-            <h2 className="text-base font-bold text-amber-400 flex items-center gap-2">
-              <Settings className="w-5 h-5" /> Panel de Configuración Global
-            </h2>
-
-            {config ? (
-              <form onSubmit={guardarConfiguracion} className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-3">
-                <h3 className="text-xs font-bold text-slate-300">Constantes de Costo de Equipo</h3>
-                
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-[11px] text-slate-400 block mb-1">Precio Energía ($/kWh)</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={config.precio_energia_kwh || ''}
-                      onChange={(e) => setConfig({ ...config, precio_energia_kwh: e.target.value })}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[11px] text-slate-400 block mb-1">Consumo (kW)</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={config.consumo_impresora_kw || ''}
-                      onChange={(e) => setConfig({ ...config, consumo_impresora_kw: e.target.value })}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-[11px] text-slate-400 block mb-1">Precio Impresora ($)</label>
-                    <input
-                      type="number"
-                      value={config.precio_impresora || ''}
-                      onChange={(e) => setConfig({ ...config, precio_impresora: e.target.value })}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[11px] text-slate-400 block mb-1">Vida Útil (Horas)</label>
-                    <input
-                      type="number"
-                      value={config.vida_util_horas || ''}
-                      onChange={(e) => setConfig({ ...config, vida_util_horas: e.target.value })}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
-                    />
-                  </div>
-                </div>
-
-                <div className="pt-2 border-t border-slate-800">
-                  <h3 className="text-xs font-bold text-emerald-400 mb-2">Tarifas de Servicio $/Hora</h3>
-                  <div className="space-y-2">
-                    <div>
-                      <label className="text-[11px] text-slate-400 block mb-0.5">Servicio Básico ($/h)</label>
-                      <input
-                        type="number"
-                        value={config.costo_servicio_basico || ''}
-                        onChange={(e) => setConfig({ ...config, costo_servicio_basico: e.target.value })}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white font-mono"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[11px] text-slate-400 block mb-0.5">Servicio Estándar ($/h)</label>
-                      <input
-                        type="number"
-                        value={config.costo_servicio_estandar || ''}
-                        onChange={(e) => setConfig({ ...config, costo_servicio_estandar: e.target.value })}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white font-mono"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[11px] text-slate-400 block mb-0.5">Servicio Express / Premium ($/h)</label>
-                      <input
-                        type="number"
-                        value={config.costo_servicio_premium || ''}
-                        onChange={(e) => setConfig({ ...config, costo_servicio_premium: e.target.value })}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white font-mono"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 font-bold py-2.5 rounded-xl text-xs text-white transition">
-                  Guardar Tarifas y Constantes
-                </button>
-              </form>
-            ) : (
-              <div className="text-xs text-slate-500 text-center py-4">Cargando configuración...</div>
-            )}
-
-            {/* TABLA MATERIALES */}
-            <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-3">
-              <h3 className="text-xs font-bold text-slate-200 flex items-center gap-2">
-                <Tag className="w-4 h-4 text-emerald-400" /> Materiales y Precios por kg
-              </h3>
-              <div className="space-y-2">
-                {materiales.map((m) => (
-                  <div key={m.id} className="flex justify-between items-center bg-slate-950 p-2.5 rounded-xl border border-slate-800 gap-2">
-                    <input
-                      type="text"
-                      defaultValue={m.nombre}
-                      onBlur={(e) => actualizarMaterial(m.id, { nombre: e.target.value.toUpperCase() })}
-                      className="bg-transparent text-xs font-semibold text-slate-300 focus:outline-none focus:border-b border-emerald-500 flex-1"
-                    />
-                    <div className="flex items-center space-x-1">
-                      <span className="text-xs text-slate-500">$</span>
-                      <input
-                        type="number"
-                        defaultValue={m.precio_kg}
-                        onBlur={(e) => actualizarMaterial(m.id, { precio_kg: parseFloat(e.target.value) })}
-                        className="w-20 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-right text-emerald-400 font-mono"
-                      />
-                      <span className="text-xs text-slate-500">/kg</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => eliminarMaterial(m.id, m.nombre)}
-                      className="text-slate-600 hover:text-rose-400 p-1 rounded transition"
-                      title="Eliminar Material"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-              <form onSubmit={agregarMaterial} className="flex gap-2 pt-2 border-t border-slate-800">
-                <input
-                  type="text"
-                  placeholder="Nuevo Material"
-                  value={nuevoMaterial.nombre}
-                  onChange={(e) => setNuevoMaterial({ ...nuevoMaterial, nombre: e.target.value })}
-                  className="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white"
-                />
-                <input
-                  type="number"
-                  placeholder="$/kg"
-                  value={nuevoMaterial.precio_kg}
-                  onChange={(e) => setNuevoMaterial({ ...nuevoMaterial, precio_kg: e.target.value })}
-                  className="w-20 bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white"
-                />
-                <button type="submit" className="bg-emerald-600 px-3 py-2 rounded-xl text-xs font-bold">+</button>
-              </form>
+        {/* PESTAÑA 1: PEDIDOS PENDIENTES (TIPO KEEP) */}
+        {activeTab === 'pedidos' && (
+          <div className="space-y-4">
+            <div>
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                <ClipboardList className="w-5 h-5 text-emerald-400" /> Tomar Nuevo Pedido
+              </h2>
+              <p className="text-xs text-slate-400">Anota encargos pendientes y especifica colores</p>
             </div>
 
-            {/* TABLA CATEGORÍAS */}
-            <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-3">
-              <h3 className="text-xs font-bold text-slate-200">Categorías y Prefijos</h3>
-              <div className="space-y-2">
-                {categorias.map((c) => (
-                  <div key={c.id} className="flex justify-between items-center bg-slate-950 p-2.5 rounded-xl border border-slate-800 gap-2">
-                    <input
-                      type="text"
-                      defaultValue={c.nombre}
-                      onBlur={(e) => actualizarCategoria(c.id, { nombre: e.target.value })}
-                      className="bg-transparent text-xs font-medium text-slate-300 focus:outline-none focus:border-b border-emerald-500 flex-1"
-                    />
-                    <input
-                      type="text"
-                      defaultValue={c.prefijo}
-                      onBlur={(e) => actualizarCategoria(c.id, { prefijo: e.target.value.toUpperCase() })}
-                      className="w-16 bg-emerald-950 text-emerald-400 text-center font-mono font-bold text-xs py-1 rounded border border-emerald-900 focus:outline-none"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => eliminarCategoria(c.id, c.nombre)}
-                      className="text-slate-600 hover:text-rose-400 p-1 rounded transition"
-                      title="Eliminar Categoría"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
+            <form onSubmit={registrarPedido} className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-3 shadow-lg">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs font-medium text-slate-300 block mb-1">Recibido por</label>
+                  <select
+                    value={pedidoForm.recibido_por}
+                    onChange={(e) => setPedidoForm({ ...pedidoForm, recibido_por: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
+                  >
+                    {['Papi', 'Nadia', 'Valen', 'Nico'].map(u => (
+                      <option key={u} value={u}>{u}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-300 block mb-1">Tipo de Pieza</label>
+                  <select
+                    value={pedidoForm.tipo_pieza}
+                    onChange={(e) => setPedidoForm({ ...pedidoForm, tipo_pieza: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
+                  >
+                    <option value="existente">Catálogo Existente</option>
+                    <option value="nuevo">Nuevo Diseño a Buscar</option>
+                  </select>
+                </div>
               </div>
-              <form onSubmit={agregarCategoria} className="flex gap-2 pt-2 border-t border-slate-800">
+
+              {pedidoForm.tipo_pieza === 'existente' ? (
+                <div>
+                  <label className="text-xs font-medium text-slate-300 block mb-1">Seleccionar Pieza del Catálogo</label>
+                  <select
+                    value={pedidoForm.pieza_id}
+                    onChange={(e) => setPedidoForm({ ...pedidoForm, pieza_id: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
+                  >
+                    <option value="">Seleccionar diseño...</option>
+                    {piezas.map(p => (
+                      <option key={p.id} value={p.id}>{p.codigo} - {p.titulo}</option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div>
+                  <label className="text-xs font-medium text-slate-300 block mb-1">Leyenda Descriptiva / Nombre a Buscar</label>
+                  <input
+                    type="text"
+                    placeholder="Ej: Llavero personalizado nombre 'Lucas'"
+                    value={pedidoForm.descripcion_nuevo}
+                    onChange={(e) => setPedidoForm({ ...pedidoForm, descripcion_nuevo: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="text-xs font-medium text-slate-300 block mb-1">Colores Solicitados (Texto a mano)</label>
                 <input
                   type="text"
-                  placeholder="Nueva Categoría"
-                  value={nuevaCategoria.nombre}
-                  onChange={(e) => setNuevaCategoria({ ...nuevaCategoria, nombre: e.target.value })}
-                  className="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white"
+                  placeholder="Ej: Negro matte con letras doradas"
+                  value={pedidoForm.colores_solicitados}
+                  onChange={(e) => setPedidoForm({ ...pedidoForm, colores_solicitados: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
                 />
-                <input
-                  type="text"
-                  placeholder="Prefijo"
-                  value={nuevaCategoria.prefijo}
-                  onChange={(e) => setNuevaCategoria({ ...nuevaCategoria, prefijo: e.target.value })}
-                  className="w-20 bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white"
-                />
-                <button type="submit" className="bg-emerald-600 px-3 py-2 rounded-xl text-xs font-bold">+</button>
-              </form>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl text-xs transition shadow-md"
+              >
+                + Cargar Pedido a la Lista
+              </button>
+            </form>
+
+            <div className="space-y-2 pt-2">
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Lista de Encargos</h3>
+              {pedidos.length === 0 ? (
+                <div className="text-center py-8 text-slate-500 text-xs">No hay pedidos registrados en la lista.</div>
+              ) : (
+                pedidos.map((pd) => (
+                  <div
+                    key={pd.id}
+                    onClick={() => togglePedidoEstado(pd.id, pd.completado)}
+                    className={`bg-slate-900 border p-3 rounded-2xl flex items-start justify-between cursor-pointer transition ${
+                      pd.completado ? 'border-slate-800 opacity-50 bg-slate-950/40' : 'border-slate-800 hover:border-emerald-500/50'
+                    }`}
+                  >
+                    <div className="flex items-start space-x-3">
+                      <div className="mt-0.5">
+                        {pd.completado ? (
+                          <CheckSquare className="w-5 h-5 text-emerald-400" />
+                        ) : (
+                          <Square className="w-5 h-5 text-slate-600" />
+                        )}
+                      </div>
+                      <div>
+                        <span className={`text-xs font-bold block ${pd.completado ? 'line-through text-slate-500' : 'text-slate-200'}`}>
+                          {pd.piezas?.titulo || pd.descripcion_nuevo || 'Diseño especial'}
+                        </span>
+                        <div className="flex space-x-2 text-[10px] text-slate-400 mt-0.5">
+                          <span>Recibió: {pd.recibido_por}</span>
+                          {pd.colores_solicitados && <span>• Color: {pd.colores_solicitados}</span>}
+                        </div>
+                      </div>
+                    </div>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${pd.completado ? 'bg-slate-800 text-slate-500' : 'bg-emerald-950 text-emerald-400'}`}>
+                      {pd.completado ? 'Cobrado' : 'Pendiente'}
+                    </span>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         )}
@@ -806,7 +792,6 @@ export default function App() {
                       onClick={() => abrirModalCotizar(p)}
                       className="bg-slate-900 border border-slate-800 hover:border-emerald-500/50 rounded-2xl overflow-hidden flex flex-col justify-between cursor-pointer transition group shadow-md"
                     >
-                      {/* VISTA DE IMAGEN JUSTIFICADA COMPLETA (object-contain) */}
                       <div className="relative w-full aspect-square bg-slate-950 flex items-center justify-center overflow-hidden p-1">
                         {p.imagen_principal_url ? (
                           <img src={p.imagen_principal_url} alt={p.titulo} className="w-full h-full object-contain group-hover:scale-105 transition duration-300" />
@@ -854,7 +839,7 @@ export default function App() {
               <h2 className="text-base font-bold text-white flex items-center gap-2">
                 <ShoppingCart className="w-5 h-5 text-emerald-400" /> Registrar Nueva Venta
               </h2>
-              <p className="text-xs text-slate-400">Registra las piezas vendidas y asigna la comisión</p>
+              <p className="text-xs text-slate-400">Asigna la ganancia al vendedor y el servicio al fabricante</p>
             </div>
 
             <form onSubmit={registrarVenta} className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-4 shadow-lg">
@@ -872,9 +857,11 @@ export default function App() {
               </div>
 
               <div>
-                <label className="text-xs font-medium text-slate-300 block mb-1">Vendedor</label>
+                <label className="text-xs font-medium text-slate-300 block mb-1 flex items-center gap-1">
+                  <User className="w-3.5 h-3.5 text-emerald-400" /> ¿Quién Vendió? (Lleva la Ganancia)
+                </label>
                 <div className="grid grid-cols-4 gap-2">
-                  {['Papi', 'Mami', 'Valen', 'Nico'].map(v => (
+                  {['Papi', 'Nadia', 'Valen', 'Nico'].map(v => (
                     <button
                       key={v}
                       type="button"
@@ -892,6 +879,28 @@ export default function App() {
               </div>
 
               <div>
+                <label className="text-xs font-medium text-slate-300 block mb-1 flex items-center gap-1">
+                  <Wrench className="w-3.5 h-3.5 text-amber-400" /> ¿Quién Fabricó? (Lleva el Servicio $/h)
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {['Nico', 'Valen', 'NiVa'].map(f => (
+                    <button
+                      key={f}
+                      type="button"
+                      onClick={() => setVentaForm({ ...ventaForm, fabricante: f })}
+                      className={`py-2 text-xs font-bold rounded-xl border transition ${
+                        ventaForm.fabricante === f 
+                          ? 'bg-amber-600 border-amber-500 text-white' 
+                          : 'bg-slate-950 border-slate-800 text-slate-400'
+                      }`}
+                    >
+                      {f === 'NiVa' ? 'Empresa (NiVa)' : f}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
                 <label className="text-xs font-medium text-slate-300 block mb-1">Precio Cobrado Final ($)</label>
                 <input
                   type="number"
@@ -901,88 +910,76 @@ export default function App() {
                 />
               </div>
 
-              <div className="flex items-center justify-between bg-slate-950 p-3 rounded-xl border border-slate-800">
-                <div className="flex items-center space-x-2">
-                  <UserCheck className="w-4 h-4 text-emerald-400" />
-                  <span className="text-xs font-medium text-slate-300">Asignar Comisión al Vendedor</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setVentaForm({ ...ventaForm, con_comision: !ventaForm.con_comision })}
-                  className={`w-11 h-6 flex items-center rounded-full p-1 transition ${ventaForm.con_comision ? 'bg-emerald-600 justify-end' : 'bg-slate-800 justify-start'}`}
-                >
-                  <div className="bg-white w-4 h-4 rounded-full shadow"></div>
-                </button>
-              </div>
-
               <button
                 type="submit"
                 className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold py-3 rounded-xl text-xs shadow-lg shadow-emerald-950/50 transition"
               >
-                Confirmar Registro de Venta
+                Confirmar y Registrar Venta
               </button>
             </form>
           </div>
         )}
 
-        {/* PESTAÑA: ESTADÍSTICAS Y REPARTO */}
+        {/* PESTAÑA: ESTADÍSTICAS Y DISTRIBUCIÓN DE CAJA */}
         {activeTab === 'estadisticas' && (
           <div className="space-y-4">
-            <div>
-              <h2 className="text-base font-bold text-white flex items-center gap-2">
-                <BarChart2 className="w-5 h-5 text-emerald-400" /> Estadísticas y Reparto NiVa
-              </h2>
-              <p className="text-xs text-slate-400">Balance global de ingresos, fondo de caja y comisiones</p>
+            <div className="flex justify-between items-start">
+              <div>
+                <h2 className="text-base font-bold text-white flex items-center gap-2">
+                  <BarChart2 className="w-5 h-5 text-emerald-400" /> Balance y Reparto de Caja
+                </h2>
+                <p className="text-xs text-slate-400">Acumulados pendientes de pago en cuenta común</p>
+              </div>
+              <button
+                onClick={liquidarCaja}
+                className="bg-amber-600 hover:bg-amber-500 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition shadow-md flex items-center space-x-1"
+              >
+                <span>Liquidar Caja</span>
+              </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-1">
-                <div className="flex items-center space-x-1.5 text-slate-400 text-xs">
-                  <DollarSign className="w-4 h-4 text-emerald-400" />
-                  <span>Ventas Totales</span>
+            {/* TARJETAS DE ACUMULADOS INDIVIDUALES */}
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { nombre: 'Nico', monto: stats.Nico, color: 'emerald' },
+                { nombre: 'Valen', monto: stats.Valen, color: 'teal' },
+                { nombre: 'Nadia', monto: stats.Nadia, color: 'cyan' },
+                { nombre: 'Papi', monto: stats.Papi, color: 'indigo' },
+              ].map((user) => (
+                <div key={user.nombre} className="bg-slate-900 p-3 rounded-2xl border border-slate-800 space-y-1">
+                  <span className="text-[11px] font-bold text-slate-400 block">{user.nombre} (Venta + Fabricación)</span>
+                  <p className="text-lg font-extrabold text-white font-mono">${Math.round(user.monto).toLocaleString()}</p>
                 </div>
-                <p className="text-xl font-extrabold text-white font-mono">${stats.totalIngresos.toLocaleString()}</p>
-                <span className="text-[10px] text-slate-500">{stats.totalUnidades} unidades vendidas</span>
-              </div>
-
-              <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-1">
-                <div className="flex items-center space-x-1.5 text-slate-400 text-xs">
-                  <Wallet className="w-4 h-4 text-teal-400" />
-                  <span>Fondo NiVa</span>
-                </div>
-                <p className="text-xl font-extrabold text-teal-400 font-mono">${Math.round(stats.totalNiva).toLocaleString()}</p>
-                <span className="text-[10px] text-slate-500">Costo + 50% Ganancia</span>
-              </div>
+              ))}
             </div>
 
-            <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-300">Acumulado Comisiones Vendedores</span>
-                <span className="text-sm font-extrabold text-amber-400 font-mono">${Math.round(stats.totalComisiones).toLocaleString()}</span>
+            {/* FONDO NIVA (REPOSICIÓN INSUMOS + SERVICIOS NIVA) */}
+            <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-1">
+              <div className="flex items-center space-x-1.5 text-slate-400 text-xs">
+                <Wallet className="w-4 h-4 text-emerald-400" />
+                <span>Caja Chica NiVa (Insumos + Servicios Empresa)</span>
               </div>
-              <p className="text-[10px] text-slate-500">50% de ganancia neta repartida a los vendedores</p>
+              <p className="text-2xl font-extrabold text-emerald-400 font-mono">${Math.round(stats.NiVa).toLocaleString()}</p>
+              <span className="text-[10px] text-slate-500">Monto reservado para reposición de filamento, energía y mantenimiento</span>
             </div>
 
             <div className="space-y-2">
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Historial Reciente</h3>
-              {ventas.length === 0 ? (
-                <div className="text-center py-8 text-slate-500 text-xs">Aún no hay ventas registradas.</div>
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Ventas Pendientes de Liquidar</h3>
+              {ventas.filter(v => !v.liquidado).length === 0 ? (
+                <div className="text-center py-8 text-slate-500 text-xs">No hay ventas pendientes de liquidar.</div>
               ) : (
-                ventas.map((v) => (
+                ventas.filter(v => !v.liquidado).map((v) => (
                   <div key={v.id} className="bg-slate-900 border border-slate-800 p-3 rounded-xl flex items-center justify-between text-xs">
                     <div>
                       <span className="font-bold text-white">{v.piezas?.titulo || 'Pieza'}</span>
                       <div className="flex space-x-2 text-[10px] text-slate-400">
-                        <span>Vendedor: {v.vendedor}</span>
+                        <span>Vendió: {v.vendedor}</span>
                         <span>•</span>
-                        <span>{new Date(v.created_at).toLocaleDateString()}</span>
+                        <span>Fabricó: {v.fabricante || 'NiVa'}</span>
                       </div>
                     </div>
                     <div className="text-right">
                       <span className="font-mono font-bold text-emerald-400">${v.precio_cobrado}</span>
-                      {v.monto_comision > 0 && (
-                        <span className="block text-[9px] text-amber-400 font-mono">Com: ${Math.round(v.monto_comision)}</span>
-                      )}
                     </div>
                   </div>
                 ))
@@ -1035,24 +1032,6 @@ export default function App() {
                     <span className="font-semibold text-slate-200">{selectedPiezaModal.horas}h {selectedPiezaModal.minutos}m</span>
                   </div>
                 </div>
-                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 flex items-center space-x-2">
-                  <Tag className="w-4 h-4 text-emerald-400" />
-                  <div>
-                    <span className="text-[10px] text-slate-500 block">Material Asignado</span>
-                    <span className="font-semibold text-slate-200">
-                      {selectedPiezaModal.materiales?.nombre || materiales.find(m => m.id === selectedPiezaModal.material_id)?.nombre || 'PLA'}
-                    </span>
-                  </div>
-                </div>
-                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 flex items-center space-x-2">
-                  <Maximize2 className="w-4 h-4 text-emerald-400" />
-                  <div>
-                    <span className="text-[10px] text-slate-500 block">Dimensiones</span>
-                    <span className="font-semibold text-slate-200">
-                      {selectedPiezaModal.ancho_cm || '-'} × {selectedPiezaModal.alto_cm || '-'} × {selectedPiezaModal.profundidad_cm || '-'} cm
-                    </span>
-                  </div>
-                </div>
               </div>
 
               <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
@@ -1074,7 +1053,6 @@ export default function App() {
                     </select>
                   </div>
                   <div>
-                    {/* DESPLEGABLE DE MARGEN DE GANANCIA EN PASOS DE 10% */}
                     <label className="text-[11px] text-slate-400 block mb-1">Margen Ganancia</label>
                     <select
                       value={simMargenGanancia}
@@ -1253,36 +1231,6 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="bg-slate-900 p-3.5 rounded-2xl border border-slate-800 space-y-2">
-                <span className="text-xs font-medium text-slate-400 block">Dimensiones (Opcional)</span>
-                <div className="grid grid-cols-3 gap-2">
-                  <input
-                    type="number"
-                    step="0.1"
-                    placeholder="Ancho (cm)"
-                    value={piezasForm.ancho_cm}
-                    onChange={(e) => setPiezasForm({ ...piezasForm, ancho_cm: e.target.value })}
-                    className="bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white text-center"
-                  />
-                  <input
-                    type="number"
-                    step="0.1"
-                    placeholder="Alto (cm)"
-                    value={piezasForm.alto_cm}
-                    onChange={(e) => setPiezasForm({ ...piezasForm, alto_cm: e.target.value })}
-                    className="bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white text-center"
-                  />
-                  <input
-                    type="number"
-                    step="0.1"
-                    placeholder="Prof (cm)"
-                    value={piezasForm.profundidad_cm}
-                    onChange={(e) => setPiezasForm({ ...piezasForm, profundidad_cm: e.target.value })}
-                    className="bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white text-center"
-                  />
-                </div>
-              </div>
-
               <div className="flex items-center justify-between bg-slate-900 p-3.5 rounded-2xl border border-slate-800">
                 <div className="flex items-center space-x-2">
                   <Sparkles className="w-4 h-4 text-amber-400" />
@@ -1319,47 +1267,200 @@ export default function App() {
           </div>
         )}
 
-        {/* PESTAÑA: EDITAR PIEZA */}
-        {activeTab === 'editar' && !piezasForm.id && (
-          <div className="space-y-4">
-            <div>
-              <h2 className="text-base font-bold text-white flex items-center gap-2">
-                <Edit3 className="w-5 h-5 text-amber-400" /> Editar Pieza del Catálogo
-              </h2>
-              <p className="text-xs text-slate-400">Selecciona la pieza que deseas modificar</p>
+        {/* PESTAÑA: ADMIN */}
+        {activeTab === 'admin' && isAdmin && (
+          <div className="space-y-5">
+            <h2 className="text-base font-bold text-amber-400 flex items-center gap-2">
+              <Settings className="w-5 h-5" /> Panel de Configuración Global
+            </h2>
+
+            {config ? (
+              <form onSubmit={guardarConfiguracion} className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-3">
+                <h3 className="text-xs font-bold text-slate-300">Constantes de Costo de Equipo</h3>
+                
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[11px] text-slate-400 block mb-1">Precio Energía ($/kWh)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={config.precio_energia_kwh || ''}
+                      onChange={(e) => setConfig({ ...config, precio_energia_kwh: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-slate-400 block mb-1">Consumo (kW)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={config.consumo_impresora_kw || ''}
+                      onChange={(e) => setConfig({ ...config, consumo_impresora_kw: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[11px] text-slate-400 block mb-1">Precio Impresora ($)</label>
+                    <input
+                      type="number"
+                      value={config.precio_impresora || ''}
+                      onChange={(e) => setConfig({ ...config, precio_impresora: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-slate-400 block mb-1">Vida Útil (Horas)</label>
+                    <input
+                      type="number"
+                      value={config.vida_util_horas || ''}
+                      onChange={(e) => setConfig({ ...config, vida_util_horas: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-slate-800">
+                  <h3 className="text-xs font-bold text-emerald-400 mb-2">Tarifas de Servicio $/Hora</h3>
+                  <div className="space-y-2">
+                    <div>
+                      <label className="text-[11px] text-slate-400 block mb-0.5">Servicio Básico ($/h)</label>
+                      <input
+                        type="number"
+                        value={config.costo_servicio_basico || ''}
+                        onChange={(e) => setConfig({ ...config, costo_servicio_basico: e.target.value })}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] text-slate-400 block mb-0.5">Servicio Estándar ($/h)</label>
+                      <input
+                        type="number"
+                        value={config.costo_servicio_estandar || ''}
+                        onChange={(e) => setConfig({ ...config, costo_servicio_estandar: e.target.value })}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] text-slate-400 block mb-0.5">Servicio Express / Premium ($/h)</label>
+                      <input
+                        type="number"
+                        value={config.costo_servicio_premium || ''}
+                        onChange={(e) => setConfig({ ...config, costo_servicio_premium: e.target.value })}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white font-mono"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 font-bold py-2.5 rounded-xl text-xs text-white transition">
+                  Guardar Tarifas y Constantes
+                </button>
+              </form>
+            ) : (
+              <div className="text-xs text-slate-500 text-center py-4">Cargando configuración...</div>
+            )}
+
+            {/* TABLA MATERIALES */}
+            <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-3">
+              <h3 className="text-xs font-bold text-slate-200 flex items-center gap-2">
+                <Tag className="w-4 h-4 text-emerald-400" /> Materiales y Precios por kg
+              </h3>
+              <div className="space-y-2">
+                {materiales.map((m) => (
+                  <div key={m.id} className="flex justify-between items-center bg-slate-950 p-2.5 rounded-xl border border-slate-800 gap-2">
+                    <input
+                      type="text"
+                      defaultValue={m.nombre}
+                      onBlur={(e) => actualizarMaterial(m.id, { nombre: e.target.value.toUpperCase() })}
+                      className="bg-transparent text-xs font-semibold text-slate-300 focus:outline-none focus:border-b border-emerald-500 flex-1"
+                    />
+                    <div className="flex items-center space-x-1">
+                      <span className="text-xs text-slate-500">$</span>
+                      <input
+                        type="number"
+                        defaultValue={m.precio_kg}
+                        onBlur={(e) => actualizarMaterial(m.id, { precio_kg: parseFloat(e.target.value) })}
+                        className="w-20 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-right text-emerald-400 font-mono"
+                      />
+                      <span className="text-xs text-slate-500">/kg</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => eliminarMaterial(m.id, m.nombre)}
+                      className="text-slate-600 hover:text-rose-400 p-1 rounded transition"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <form onSubmit={agregarMaterial} className="flex gap-2 pt-2 border-t border-slate-800">
+                <input
+                  type="text"
+                  placeholder="Nuevo Material"
+                  value={nuevoMaterial.nombre}
+                  onChange={(e) => setNuevoMaterial({ ...nuevoMaterial, nombre: e.target.value })}
+                  className="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white"
+                />
+                <input
+                  type="number"
+                  placeholder="$/kg"
+                  value={nuevoMaterial.precio_kg}
+                  onChange={(e) => setNuevoMaterial({ ...nuevoMaterial, precio_kg: e.target.value })}
+                  className="w-20 bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white"
+                />
+                <button type="submit" className="bg-emerald-600 px-3 py-2 rounded-xl text-xs font-bold">+</button>
+              </form>
             </div>
 
-            <div className="space-y-2">
-              {piezas.length === 0 ? (
-                <div className="text-center py-12 text-slate-500 text-xs">No hay piezas cargadas aún.</div>
-              ) : (
-                piezas.map((p) => (
-                  <div
-                    key={p.id}
-                    onClick={() => seleccionarParaEditar(p)}
-                    className="bg-slate-900 border border-slate-800 hover:border-emerald-500/50 p-3 rounded-2xl flex items-center justify-between cursor-pointer transition group"
-                  >
-                    <div className="flex items-center space-x-3">
-                      <div className="w-12 h-12 rounded-xl bg-slate-950 border border-slate-800 overflow-hidden flex items-center justify-center flex-shrink-0 p-1">
-                        {p.imagen_principal_url ? (
-                          <img src={p.imagen_principal_url} alt={p.titulo} className="w-full h-full object-contain" />
-                        ) : (
-                          <Package className="w-6 h-6 text-slate-600" />
-                        )}
-                      </div>
-                      <div>
-                        <div className="flex items-center space-x-2">
-                          <span className="text-xs font-mono font-bold text-emerald-400">{p.codigo}</span>
-                          <span className="text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded">{p.categorias?.nombre}</span>
-                        </div>
-                        <h3 className="text-sm font-semibold text-slate-200 group-hover:text-emerald-300 transition line-clamp-1">{p.titulo}</h3>
-                        <p className="text-[10px] text-slate-400">{p.peso_gramos}g • {p.horas}h {p.minutos}m • {p.materiales?.nombre}</p>
-                      </div>
-                    </div>
-                    <ChevronRight className="w-5 h-5 text-slate-600 group-hover:text-emerald-400 transition" />
+            {/* TABLA CATEGORÍAS */}
+            <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-3">
+              <h3 className="text-xs font-bold text-slate-200">Categorías y Prefijos</h3>
+              <div className="space-y-2">
+                {categorias.map((c) => (
+                  <div key={c.id} className="flex justify-between items-center bg-slate-950 p-2.5 rounded-xl border border-slate-800 gap-2">
+                    <input
+                      type="text"
+                      defaultValue={c.nombre}
+                      onBlur={(e) => actualizarCategoria(c.id, { nombre: e.target.value })}
+                      className="bg-transparent text-xs font-medium text-slate-300 focus:outline-none focus:border-b border-emerald-500 flex-1"
+                    />
+                    <input
+                      type="text"
+                      defaultValue={c.prefijo}
+                      onBlur={(e) => actualizarCategoria(c.id, { prefijo: e.target.value.toUpperCase() })}
+                      className="w-16 bg-emerald-950 text-emerald-400 text-center font-mono font-bold text-xs py-1 rounded border border-emerald-900 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => eliminarCategoria(c.id, c.nombre)}
+                      className="text-slate-600 hover:text-rose-400 p-1 rounded transition"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
-                ))
-              )}
+                ))}
+              </div>
+              <form onSubmit={agregarCategoria} className="flex gap-2 pt-2 border-t border-slate-800">
+                <input
+                  type="text"
+                  placeholder="Nueva Categoría"
+                  value={nuevaCategoria.nombre}
+                  onChange={(e) => setNuevaCategoria({ ...nuevaCategoria, nombre: e.target.value })}
+                  className="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white"
+                />
+                <input
+                  type="text"
+                  placeholder="Prefijo"
+                  value={nuevaCategoria.prefijo}
+                  onChange={(e) => setNuevaCategoria({ ...nuevaCategoria, prefijo: e.target.value })}
+                  className="w-20 bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white"
+                />
+                <button type="submit" className="bg-emerald-600 px-3 py-2 rounded-xl text-xs font-bold">+</button>
+              </form>
             </div>
           </div>
         )}
@@ -1399,8 +1500,15 @@ export default function App() {
         </div>
       )}
 
-      {/* NAVEGACIÓN INFERIOR PWA */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-slate-900/90 backdrop-blur-lg border-t border-slate-800 py-2 px-2 flex justify-around items-center z-40">
+      {/* NAVEGACIÓN INFERIOR PWA (ORDEN ACTUALIZADO CON PEDIDOS AL INICIO) */}
+      <nav className="fixed bottom-0 left-0 right-0 bg-slate-900/90 backdrop-blur-lg border-t border-slate-800 py-2 px-1 flex justify-around items-center z-40">
+        <button
+          onClick={() => setActiveTab('pedidos')}
+          className={`flex flex-col items-center space-y-1 transition ${activeTab === 'pedidos' ? 'text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}
+        >
+          <ClipboardList className="w-5 h-5" />
+          <span className="text-[10px] font-medium">Pedidos</span>
+        </button>
         <button
           onClick={() => setActiveTab('cotizar')}
           className={`flex flex-col items-center space-y-1 transition ${activeTab === 'cotizar' ? 'text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}
@@ -1414,13 +1522,6 @@ export default function App() {
         >
           <PlusCircle className="w-5 h-5" />
           <span className="text-[10px] font-medium">Añadir</span>
-        </button>
-        <button
-          onClick={() => { limpiarFormulario(); setActiveTab('editar'); }}
-          className={`flex flex-col items-center space-y-1 transition ${activeTab === 'editar' ? 'text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}
-        >
-          <Edit3 className="w-5 h-5" />
-          <span className="text-[10px] font-medium">Editar</span>
         </button>
         <button
           onClick={() => setActiveTab('venta')}
