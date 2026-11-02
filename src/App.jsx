@@ -1228,4 +1228,45 @@ export default function App() {
         </button>
         <button
           onClick={() => { limpiarFormulario(); setActiveTab('anadir'); }}
-          className={`flex flex-col items-center space-y-1 transition ${activeTab === 'anadir' ? 'text-emerald-400' :
+          className={`flex flex-col items-center space-y-1 transition ${activeTab === 'anadir' ? 'text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}
+        >
+          <PlusCircle className="w-5 h-5" />
+          <span className="text-[10px] font-medium">Añadir</span>
+        </button>
+        <button
+          onClick={() => { limpiarFormulario(); setActiveTab('editar'); }}
+          className={`flex flex-col items-center space-y-1 transition ${activeTab === 'editar' ? 'text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}
+        >
+          <Edit3 className="w-5 h-5" />
+          <span className="text-[10px] font-medium">Editar</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('venta')}
+          className={`flex flex-col items-center space-y-1 transition ${activeTab === 'venta' ? 'text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}
+        >
+          <ShoppingCart className="w-5 h-5" />
+          <span className="text-[10px] font-medium">Venta</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('estadisticas')}
+          className={`flex flex-col items-center space-y-1 transition ${activeTab === 'estadisticas' ? 'text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}
+        >
+          <BarChart2 className="w-5 h-5" />
+          <span className="text-[10px] font-medium">Stats</span>
+        </button>
+
+        {/* BOTÓN EXCLUSIVO ADMIN EN LA BARRA INFERIOR */}
+        {isAdmin && (
+          <button
+            onClick={() => setActiveTab('admin')}
+            className={`flex flex-col items-center space-y-1 transition ${activeTab === 'admin' ? 'text-amber-400' : 'text-slate-500 hover:text-slate-300'}`}
+          >
+            <Settings className="w-5 h-5 text-amber-400" />
+            <span className="text-[10px] font-bold text-amber-400">Admin</span>
+          </button>
+        )}
+      </nav>
+
+    </div>
+  );
+}
