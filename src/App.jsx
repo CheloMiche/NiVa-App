@@ -5,7 +5,7 @@ import {
   Settings, Tag, Package, Calculator, PlusCircle, Edit3, 
   ShoppingCart, BarChart2, Lock, Unlock, Camera, Upload, 
   AlertCircle, CheckCircle2, ChevronRight, Sparkles, Search, 
-  X, Info, Clock, Weight, Maximize2, Check 
+  X, Clock, Weight, Maximize2, Check, UserCheck, DollarSign, Wallet 
 } from 'lucide-react';
 
 export default function App() {
@@ -19,6 +19,7 @@ export default function App() {
   const [materiales, setMateriales] = useState([]);
   const [categorias, setCategorias] = useState([]);
   const [piezas, setPiezas] = useState([]);
+  const [ventas, setVentas] = useState([]);
 
   // Buscador y Cotizador
   const [searchTerm, setSearchTerm] = useState('');
@@ -41,6 +42,14 @@ export default function App() {
     profundidad_cm: '',
     imagen_principal_url: '',
     es_multicolor: false
+  });
+
+  // Formulario Venta
+  const [ventaForm, setVentaForm] = useState({
+    pieza_id: '',
+    vendedor: 'Papi',
+    precio_cobrado: '',
+    con_comision: true
   });
 
   const [codigoGenerado, setCodigoGenerado] = useState('');
@@ -78,7 +87,19 @@ export default function App() {
     }
 
     const { data: pza } = await supabase.from('piezas').select('*, categorias(*), materiales(*)').order('created_at', { ascending: false });
-    if (pza) setPiezas(pza);
+    if (pza) {
+      setPiezas(pza);
+      if (pza.length > 0 && !ventaForm.pieza_id) {
+        setVentaForm(prev => ({ 
+          ...prev, 
+          pieza_id: pza[0].id,
+          precio_cobrado: calcularCostosPieza(pza[0], pza[0].nivel_servicio_estimativo || 2, pza[0].margen_ganancia_estimativo || 50).precioFinal
+        }));
+      }
+    }
+
+    const { data: vts } = await supabase.from('ventas').select('*, piezas(*)').order('created_at', { ascending: false });
+    if (vts) setVentas(vts);
   };
 
   const obtenerCodigoCategoria = async (catId) => {
@@ -89,34 +110,22 @@ export default function App() {
     }
   };
 
-  // FÓRMULA DE CÁLCULO DE COSTO Y PRECIO FINAL (EXCEL)
+  // FÓRMULA DE COSTO Y PRECIO FINAL (EXCEL)
   const calcularCostosPieza = (pieza, nivelServicio = 2, margenGanancia = 50) => {
     if (!pieza || !config) return { costoTotal: 0, precioFinal: 0, subtotal: 0 };
 
     const material = pieza.materiales || materiales.find(m => m.id === pieza.material_id);
     const precioKg = material ? parseFloat(material.precio_kg) : 0;
     
-    // 1. Costo de Material
     const costoMaterial = (parseFloat(pieza.peso_gramos) / 1000) * precioKg;
-
-    // 2. Tiempo total en horas
     const tiempoHoras = parseFloat(pieza.horas) + (parseFloat(pieza.minutos) / 60);
-
-    // 3. Costo de Energía
     const costoEnergia = tiempoHoras * parseFloat(config.consumo_impresora_kw) * parseFloat(config.precio_energia_kwh);
-
-    // 4. Amortización
     const costoAmortizacion = config.vida_util_horas > 0 
       ? (parseFloat(config.precio_impresora) / parseFloat(config.vida_util_horas)) * tiempoHoras 
       : 0;
-
-    // 5. Costo de Servicio (Servicio 1 = base, Servicio 2 = 2x, etc.)
     const costoServicio = tiempoHoras * parseFloat(config.costo_servicio_hora) * parseFloat(nivelServicio);
 
-    // Subtotal
     const subtotal = costoMaterial + costoEnergia + costoAmortizacion + costoServicio;
-
-    // Precio Final con Margen
     const precioFinal = subtotal * (1 + parseFloat(margenGanancia) / 100);
 
     return {
@@ -157,13 +166,72 @@ export default function App() {
     }
   };
 
-  // FILTRADO DE PIEZAS EN LA GRILLA
+  // GESTIÓN DE VENTAS Y COMISIONES
+  const registrarVenta = async (e) => {
+    e.preventDefault();
+    if (!ventaForm.pieza_id || !ventaForm.precio_cobrado) return;
+
+    const piezaSel = piezas.find(p => p.id === ventaForm.pieza_id);
+    const calc = calcularCostosPieza(piezaSel, piezaSel.nivel_servicio_estimativo || 2, piezaSel.margen_ganancia_estimativo || 50);
+
+    const costoBase = calc.subtotal;
+    const precioFinal = parseFloat(ventaForm.precio_cobrado);
+    const gananciaBruta = precioFinal - costoBase;
+
+    // Reparto 50/50 de la ganancia sobre el costo
+    let montoComision = 0;
+    let montoNiva = precioFinal;
+
+    if (ventaForm.con_comision && gananciaBruta > 0) {
+      montoComision = gananciaBruta * 0.5;
+      montoNiva = costoBase + (gananciaBruta * 0.5);
+    }
+
+    const { error } = await supabase.from('ventas').insert([{
+      pieza_id: ventaForm.pieza_id,
+      vendedor: ventaForm.vendedor,
+      precio_cobrado: precioFinal,
+      costo_calculado: costoBase,
+      monto_niva: montoNiva,
+      monto_comision: montoComision,
+      con_comision: ventaForm.con_comision
+    }]);
+
+    if (!error) {
+      setSuccessMsg('¡Venta registrada con éxito!');
+      cargarDatos();
+      setTimeout(() => setSuccessMsg(''), 3000);
+    } else alert(error.message);
+  };
+
+  const handleSeleccionPiezaVenta = (pId) => {
+    const pSel = piezas.find(p => p.id === pId);
+    if (pSel) {
+      const calc = calcularCostosPieza(pSel, pSel.nivel_servicio_estimativo || 2, pSel.margen_ganancia_estimativo || 50);
+      setVentaForm({ ...ventaForm, pieza_id: pId, precio_cobrado: calc.precioFinal });
+    }
+  };
+
+  // CÁLCULOS ESTADÍSTICOS DE REPARTO
+  const resumenStats = () => {
+    let totalIngresos = 0;
+    let totalNiva = 0;
+    let totalComisiones = 0;
+
+    ventas.forEach(v => {
+      totalIngresos += parseFloat(v.precio_cobrado || 0);
+      totalNiva += parseFloat(v.monto_niva || 0);
+      totalComisiones += parseFloat(v.monto_comision || 0);
+    });
+
+    return { totalIngresos, totalNiva, totalComisiones, totalUnidades: ventas.length };
+  };
+
   const piezasFiltradas = piezas.filter(p => {
     const term = searchTerm.toLowerCase();
-    const tituloMatch = p.titulo.toLowerCase().includes(term);
-    const codigoMatch = p.codigo.toLowerCase().includes(term);
-    const catMatch = p.categorias?.nombre?.toLowerCase().includes(term);
-    return tituloMatch || codigoMatch || catMatch;
+    return p.titulo.toLowerCase().includes(term) || 
+           p.codigo.toLowerCase().includes(term) || 
+           p.categorias?.nombre?.toLowerCase().includes(term);
   });
 
   const handleCategoriaChange = (catId) => {
@@ -336,6 +404,8 @@ export default function App() {
     }
   };
 
+  const stats = resumenStats();
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-white pb-20">
       
@@ -395,11 +465,9 @@ export default function App() {
           </div>
         )}
 
-        {/* PESTAÑA: COTIZAR PIEZA (GRILLA 2X3 + BUSCADOR) */}
+        {/* PESTAÑA: COTIZAR PIEZA */}
         {activeTab === 'cotizar' && (
           <div className="space-y-4">
-            
-            {/* BUSCADOR */}
             <div className="relative">
               <Search className="w-4 h-4 absolute left-3.5 top-3.5 text-slate-500" />
               <input
@@ -416,7 +484,6 @@ export default function App() {
               )}
             </div>
 
-            {/* GRILLA RESPONSIVE 2 COLUMNAS (3 FILAS VISIBLES SCROLLABLE) */}
             <div className="grid grid-cols-2 gap-3 max-h-[calc(100vh-210px)] overflow-y-auto pr-1">
               {piezasFiltradas.length === 0 ? (
                 <div className="col-span-2 text-center py-12 text-slate-500 text-xs">
@@ -436,7 +503,6 @@ export default function App() {
                       onClick={() => abrirModalCotizar(p)}
                       className="bg-slate-900 border border-slate-800 hover:border-emerald-500/50 rounded-2xl overflow-hidden flex flex-col justify-between cursor-pointer transition group shadow-md"
                     >
-                      {/* IMAGEN DE PORTADA */}
                       <div className="relative w-full aspect-square bg-slate-950 flex items-center justify-center overflow-hidden">
                         {p.imagen_principal_url ? (
                           <img src={p.imagen_principal_url} alt={p.titulo} className="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
@@ -455,7 +521,6 @@ export default function App() {
                         )}
                       </div>
 
-                      {/* INFORMACIÓN Y PRECIO ESTIMATIVO */}
                       <div className="p-2.5 space-y-1">
                         <span className="text-[9px] uppercase font-bold tracking-wider text-slate-500 block truncate">
                           {p.categorias?.nombre || 'General'}
@@ -475,16 +540,160 @@ export default function App() {
                 })
               )}
             </div>
+          </div>
+        )}
+
+        {/* PESTAÑA: REGISTRAR VENTA */}
+        {activeTab === 'venta' && (
+          <div className="space-y-4">
+            <div>
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                <ShoppingCart className="w-5 h-5 text-emerald-400" /> Registrar Nueva Venta
+              </h2>
+              <p className="text-xs text-slate-400">Registra las piezas vendidas y asigna la comisión</p>
+            </div>
+
+            <form onSubmit={registrarVenta} className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-4 shadow-lg">
+              <div>
+                <label className="text-xs font-medium text-slate-300 block mb-1">Pieza Vendida</label>
+                <select
+                  value={ventaForm.pieza_id}
+                  onChange={(e) => handleSeleccionPiezaVenta(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-emerald-500"
+                >
+                  {piezas.map(p => (
+                    <option key={p.id} value={p.id}>{p.codigo} - {p.titulo}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-slate-300 block mb-1">Vendedor</label>
+                <div className="grid grid-cols-4 gap-2">
+                  {['Papi', 'Mami', 'Valen', 'Nico'].map(v => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => setVentaForm({ ...ventaForm, vendedor: v })}
+                      className={`py-2 text-xs font-bold rounded-xl border transition ${
+                        ventaForm.vendedor === v 
+                          ? 'bg-emerald-600 border-emerald-500 text-white' 
+                          : 'bg-slate-950 border-slate-800 text-slate-400'
+                      }`}
+                    >
+                      {v}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-slate-300 block mb-1">Precio Cobrado Final ($)</label>
+                <input
+                  type="number"
+                  value={ventaForm.precio_cobrado}
+                  onChange={(e) => setVentaForm({ ...ventaForm, precio_cobrado: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-base text-emerald-400 font-mono font-bold focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-between bg-slate-950 p-3 rounded-xl border border-slate-800">
+                <div className="flex items-center space-x-2">
+                  <UserCheck className="w-4 h-4 text-emerald-400" />
+                  <span className="text-xs font-medium text-slate-300">Asignar Comisión al Vendedor</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setVentaForm({ ...ventaForm, con_comision: !ventaForm.con_comision })}
+                  className={`w-11 h-6 flex items-center rounded-full p-1 transition ${ventaForm.con_comision ? 'bg-emerald-600 justify-end' : 'bg-slate-800 justify-start'}`}
+                >
+                  <div className="bg-white w-4 h-4 rounded-full shadow"></div>
+                </button>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold py-3 rounded-xl text-xs shadow-lg shadow-emerald-950/50 transition"
+              >
+                Confirmar Registro de Venta
+              </button>
+            </form>
+          </div>
+        )}
+
+        {/* PESTAÑA: ESTADÍSTICAS Y REPARTO */}
+        {activeTab === 'estadisticas' && (
+          <div className="space-y-4">
+            <div>
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                <BarChart2 className="w-5 h-5 text-emerald-400" /> Estadísticas y Reparto NiVa
+              </h2>
+              <p className="text-xs text-slate-400">Balance global de ingresos, fondo de caja y comisiones</p>
+            </div>
+
+            {/* TARJETAS DE MÉTRICAS */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-1">
+                <div className="flex items-center space-x-1.5 text-slate-400 text-xs">
+                  <DollarSign className="w-4 h-4 text-emerald-400" />
+                  <span>Ventas Totales</span>
+                </div>
+                <p className="text-xl font-extrabold text-white font-mono">${stats.totalIngresos.toLocaleString()}</p>
+                <span className="text-[10px] text-slate-500">{stats.totalUnidades} unidades vendidas</span>
+              </div>
+
+              <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-1">
+                <div className="flex items-center space-x-1.5 text-slate-400 text-xs">
+                  <Wallet className="w-4 h-4 text-teal-400" />
+                  <span>Fondo NiVa</span>
+                </div>
+                <p className="text-xl font-extrabold text-teal-400 font-mono">${Math.round(stats.totalNiva).toLocaleString()}</p>
+                <span className="text-[10px] text-slate-500">Costo + 50% Ganancia</span>
+              </div>
+            </div>
+
+            <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-300">Acumulado Comisiones Vendedores</span>
+                <span className="text-sm font-extrabold text-amber-400 font-mono">${Math.round(stats.totalComisiones).toLocaleString()}</span>
+              </div>
+              <p className="text-[10px] text-slate-500">50% de ganancia neta repartida a los vendedores</p>
+            </div>
+
+            {/* LISTADO HISTÓRICO DE VENTAS */}
+            <div className="space-y-2">
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Historial Reciente</h3>
+              {ventas.length === 0 ? (
+                <div className="text-center py-8 text-slate-500 text-xs">Aún no hay ventas registradas.</div>
+              ) : (
+                ventas.map((v) => (
+                  <div key={v.id} className="bg-slate-900 border border-slate-800 p-3 rounded-xl flex items-center justify-between text-xs">
+                    <div>
+                      <span className="font-bold text-white">{v.piezas?.titulo || 'Pieza'}</span>
+                      <div className="flex space-x-2 text-[10px] text-slate-400">
+                        <span>Vendedor: {v.vendedor}</span>
+                        <span>•</span>
+                        <span>{new Date(v.created_at).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-mono font-bold text-emerald-400">${v.precio_cobrado}</span>
+                      {v.monto_comision > 0 && (
+                        <span className="block text-[9px] text-amber-400 font-mono">Com: ${Math.round(v.monto_comision)}</span>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
 
           </div>
         )}
 
-        {/* MODAL FICHA TÉCNICA Y SIMULADOR DE COTIZACIÓN */}
+        {/* MODAL DETALLE & COTIZADOR */}
         {selectedPiezaModal && (
           <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
             <div className="bg-slate-900 border border-slate-800 rounded-t-3xl sm:rounded-3xl max-w-md w-full max-h-[90vh] overflow-y-auto p-5 space-y-4 shadow-2xl">
-              
-              {/* HEADER MODAL */}
               <div className="flex justify-between items-start border-b border-slate-800 pb-3">
                 <div>
                   <div className="flex items-center space-x-2">
@@ -503,14 +712,12 @@ export default function App() {
                 </button>
               </div>
 
-              {/* FOTO REPRESENTATIVA */}
               {selectedPiezaModal.imagen_principal_url && (
                 <div className="w-full h-40 rounded-2xl bg-slate-950 border border-slate-800 overflow-hidden">
                   <img src={selectedPiezaModal.imagen_principal_url} alt="Vista" className="w-full h-full object-cover" />
                 </div>
               )}
 
-              {/* FICHA TÉCNICA */}
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 flex items-center space-x-2">
                   <Weight className="w-4 h-4 text-emerald-400" />
@@ -544,7 +751,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* CONTROLES DEL SIMULADOR DE PRECIO */}
               <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
                 <h4 className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
                   <Calculator className="w-4 h-4 text-emerald-400" /> Simular Cotización
@@ -574,7 +780,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* RESULTADO PRECIO CALCULADO */}
                 {(() => {
                   const res = calcularCostosPieza(selectedPiezaModal, simNivelServicio, simMargenGanancia);
                   return (
@@ -591,7 +796,6 @@ export default function App() {
                 })()}
               </div>
 
-              {/* BOTÓN FIJAR COMO PRECIO ESTIMATIVO */}
               <button
                 onClick={guardarValorEstimativo}
                 disabled={savingEstimativo}
@@ -600,7 +804,6 @@ export default function App() {
                 <Check className="w-4 h-4" />
                 <span>Establecer como Precio Estimativo</span>
               </button>
-
             </div>
           </div>
         )}
@@ -853,7 +1056,7 @@ export default function App() {
           </div>
         )}
 
-        {/* PESTAÑA ADMIN (SÓLO ADMIN) */}
+        {/* PESTAÑA ADMIN */}
         {activeTab === 'admin' && isAdmin && config && (
           <div className="space-y-5">
             <h2 className="text-base font-bold text-emerald-400 flex items-center gap-2">
