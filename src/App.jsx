@@ -178,7 +178,6 @@ export default function App() {
     const precioFinal = parseFloat(ventaForm.precio_cobrado);
     const gananciaBruta = precioFinal - costoBase;
 
-    // Reparto 50/50 de la ganancia sobre el costo
     let montoComision = 0;
     let montoNiva = precioFinal;
 
@@ -212,7 +211,6 @@ export default function App() {
     }
   };
 
-  // CÁLCULOS ESTADÍSTICOS DE REPARTO
   const resumenStats = () => {
     let totalIngresos = 0;
     let totalNiva = 0;
@@ -361,6 +359,7 @@ export default function App() {
     e.preventDefault();
     if (adminPinInput === '1234') {
       setIsAdmin(true);
+      setActiveTab('admin');
       setShowAdminModal(false);
       setAdminPinInput('');
     } else alert('PIN Incorrecto');
@@ -631,7 +630,6 @@ export default function App() {
               <p className="text-xs text-slate-400">Balance global de ingresos, fondo de caja y comisiones</p>
             </div>
 
-            {/* TARJETAS DE MÉTRICAS */}
             <div className="grid grid-cols-2 gap-3">
               <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-1">
                 <div className="flex items-center space-x-1.5 text-slate-400 text-xs">
@@ -660,7 +658,6 @@ export default function App() {
               <p className="text-[10px] text-slate-500">50% de ganancia neta repartida a los vendedores</p>
             </div>
 
-            {/* LISTADO HISTÓRICO DE VENTAS */}
             <div className="space-y-2">
               <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Historial Reciente</h3>
               {ventas.length === 0 ? (
