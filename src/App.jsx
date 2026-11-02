@@ -10,8 +10,7 @@ import {
 
 export default function App() {
   // =========================================================================
-  // CLAVES Y PINS DE ACCESO (MODIFICAR AQUÍ SI LOS OLVIDAS)
-  // PIN Usuario: '3130' | PIN Admin: '1001'
+  // CLAVES Y PINS DE ACCESO (PIN Usuario: '3130' | PIN Admin: '1001')
   // =========================================================================
   const [isUserAuthenticated, setIsUserAuthenticated] = useState(false);
   const [userPinInput, setUserPinInput] = useState('');
@@ -33,7 +32,7 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPiezaModal, setSelectedPiezaModal] = useState(null);
   const [simNivelServicio, setSimNivelServicio] = useState(2); // 1: Básico, 2: Estándar, 3: Premium
-  const [simMargenGanancia, setSimMargenGanancia] = useState(50);
+  const [simMargenGanancia, setSimMargenGanancia] = useState(50); // Margen en pasos de a 10
   const [savingEstimativo, setSavingEstimativo] = useState(false);
 
   // Formulario Añadir / Editar Pieza
@@ -65,7 +64,7 @@ export default function App() {
   const [formErrors, setFormErrors] = useState([]);
   const [successMsg, setSuccessMsg] = useState('');
 
-  // Estados Admin (Edición y Creación)
+  // Estados Admin
   const [nuevoMaterial, setNuevoMaterial] = useState({ nombre: '', precio_kg: '' });
   const [nuevaCategoria, setNuevaCategoria] = useState({ nombre: '', prefijo: '' });
 
@@ -177,7 +176,7 @@ export default function App() {
   const abrirModalCotizar = (p) => {
     setSelectedPiezaModal(p);
     setSimNivelServicio(p.nivel_servicio_estimativo || 2);
-    setSimMargenGanancia(p.margen_ganancia_estimativo || 50);
+    setSimMargenGanancia(p.margen_ganancia_estimativo !== undefined ? p.margen_ganancia_estimativo : 50);
   };
 
   const guardarValorEstimativo = async () => {
@@ -277,7 +276,7 @@ export default function App() {
     if (!file) return;
     try {
       setUploadingImage(true);
-      const url = await compressAndUploadImage(file, 'piezas');
+      const url = await compressAndUploadImage(file);
       setPiezasForm(prev => ({ ...prev, imagen_principal_url: url }));
     } catch (err) {
       alert('Error al subir imagen compressed');
@@ -486,7 +485,7 @@ export default function App() {
 
   const stats = resumenStats();
 
-  // BLOQUEO INICIAL CON PIN 3130 (SIN AUTOCOMPLETE DE CLAVE)
+  // BLOQUEO INICIAL CON PIN 3130
   if (!isUserAuthenticated) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4 font-sans">
@@ -665,7 +664,7 @@ export default function App() {
               <div className="text-xs text-slate-500 text-center py-4">Cargando configuración...</div>
             )}
 
-            {/* TABLA MATERIALES (CON EDICIÓN Y ELIMINACIÓN) */}
+            {/* TABLA MATERIALES */}
             <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-3">
               <h3 className="text-xs font-bold text-slate-200 flex items-center gap-2">
                 <Tag className="w-4 h-4 text-emerald-400" /> Materiales y Precios por kg
@@ -719,7 +718,7 @@ export default function App() {
               </form>
             </div>
 
-            {/* TABLA CATEGORÍAS (CON EDICIÓN Y ELIMINACIÓN) */}
+            {/* TABLA CATEGORÍAS */}
             <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-3">
               <h3 className="text-xs font-bold text-slate-200">Categorías y Prefijos</h3>
               <div className="space-y-2">
@@ -798,7 +797,7 @@ export default function App() {
                   const estimativo = calcularCostosPieza(
                     p, 
                     p.nivel_servicio_estimativo || 2, 
-                    p.margen_ganancia_estimativo || 50
+                    p.margen_ganancia_estimativo !== undefined ? p.margen_ganancia_estimativo : 50
                   );
 
                   return (
@@ -807,9 +806,10 @@ export default function App() {
                       onClick={() => abrirModalCotizar(p)}
                       className="bg-slate-900 border border-slate-800 hover:border-emerald-500/50 rounded-2xl overflow-hidden flex flex-col justify-between cursor-pointer transition group shadow-md"
                     >
-                      <div className="relative w-full aspect-square bg-slate-950 flex items-center justify-center overflow-hidden">
+                      {/* VISTA DE IMAGEN JUSTIFICADA COMPLETA (object-contain) */}
+                      <div className="relative w-full aspect-square bg-slate-950 flex items-center justify-center overflow-hidden p-1">
                         {p.imagen_principal_url ? (
-                          <img src={p.imagen_principal_url} alt={p.titulo} className="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
+                          <img src={p.imagen_principal_url} alt={p.titulo} className="w-full h-full object-contain group-hover:scale-105 transition duration-300" />
                         ) : (
                           <Package className="w-10 h-10 text-slate-700" />
                         )}
@@ -1015,8 +1015,8 @@ export default function App() {
               </div>
 
               {selectedPiezaModal.imagen_principal_url && (
-                <div className="w-full h-40 rounded-2xl bg-slate-950 border border-slate-800 overflow-hidden">
-                  <img src={selectedPiezaModal.imagen_principal_url} alt="Vista" className="w-full h-full object-cover" />
+                <div className="w-full h-48 rounded-2xl bg-slate-950 border border-slate-800 overflow-hidden p-2 flex items-center justify-center">
+                  <img src={selectedPiezaModal.imagen_principal_url} alt="Vista" className="w-full h-full object-contain" />
                 </div>
               )}
 
@@ -1074,13 +1074,17 @@ export default function App() {
                     </select>
                   </div>
                   <div>
-                    <label className="text-[11px] text-slate-400 block mb-1">Margen Ganancia (%)</label>
-                    <input
-                      type="number"
+                    {/* DESPLEGABLE DE MARGEN DE GANANCIA EN PASOS DE 10% */}
+                    <label className="text-[11px] text-slate-400 block mb-1">Margen Ganancia</label>
+                    <select
                       value={simMargenGanancia}
-                      onChange={(e) => setSimMargenGanancia(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-xs text-white text-center font-mono"
-                    />
+                      onChange={(e) => setSimMargenGanancia(parseFloat(e.target.value))}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-xs text-white font-mono text-center"
+                    >
+                      {[0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map((m) => (
+                        <option key={m} value={m}>{m}%</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
@@ -1219,8 +1223,8 @@ export default function App() {
                 <label className="text-xs font-medium text-slate-300 block mb-1">Foto Representativa</label>
                 <div className="flex gap-3 items-center">
                   {piezasForm.imagen_principal_url ? (
-                    <div className="relative w-20 h-20 rounded-xl overflow-hidden border border-slate-700 bg-slate-900">
-                      <img src={piezasForm.imagen_principal_url} alt="Portada" className="w-full h-full object-cover" />
+                    <div className="relative w-20 h-20 rounded-xl overflow-hidden border border-slate-700 bg-slate-950 p-1 flex items-center justify-center">
+                      <img src={piezasForm.imagen_principal_url} alt="Portada" className="w-full h-full object-contain" />
                       <button
                         type="button"
                         onClick={() => setPiezasForm({ ...piezasForm, imagen_principal_url: '' })}
@@ -1336,9 +1340,9 @@ export default function App() {
                     className="bg-slate-900 border border-slate-800 hover:border-emerald-500/50 p-3 rounded-2xl flex items-center justify-between cursor-pointer transition group"
                   >
                     <div className="flex items-center space-x-3">
-                      <div className="w-12 h-12 rounded-xl bg-slate-950 border border-slate-800 overflow-hidden flex items-center justify-center flex-shrink-0">
+                      <div className="w-12 h-12 rounded-xl bg-slate-950 border border-slate-800 overflow-hidden flex items-center justify-center flex-shrink-0 p-1">
                         {p.imagen_principal_url ? (
-                          <img src={p.imagen_principal_url} alt={p.titulo} className="w-full h-full object-cover" />
+                          <img src={p.imagen_principal_url} alt={p.titulo} className="w-full h-full object-contain" />
                         ) : (
                           <Package className="w-6 h-6 text-slate-600" />
                         )}
@@ -1362,7 +1366,7 @@ export default function App() {
 
       </main>
 
-      {/* MODAL PIN ADMIN (PIN 1001, SIN AUTOCOMPLETE DE CLAVE) */}
+      {/* MODAL PIN ADMIN */}
       {showAdminModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900 p-6 rounded-3xl border border-slate-800 max-w-xs w-full space-y-4 shadow-2xl">
