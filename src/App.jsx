@@ -5,13 +5,18 @@ import {
   Settings, Tag, Package, Calculator, PlusCircle, Edit3, 
   ShoppingCart, BarChart2, Lock, Unlock, Camera, Upload, 
   AlertCircle, CheckCircle2, ChevronRight, Sparkles, Search, 
-  X, Clock, Weight, Maximize2, Check, UserCheck, DollarSign, Wallet 
+  X, Clock, Weight, Maximize2, Check, UserCheck, DollarSign, Wallet, KeyRound 
 } from 'lucide-react';
 
 export default function App() {
+  // Autenticación de Accesos
+  const [isUserAuthenticated, setIsUserAuthenticated] = useState(false);
+  const [userPinInput, setUserPinInput] = useState('');
+  
   const [isAdmin, setIsAdmin] = useState(false);
   const [adminPinInput, setAdminPinInput] = useState('');
   const [showAdminModal, setShowAdminModal] = useState(false);
+  
   const [activeTab, setActiveTab] = useState('cotizar');
 
   // Estados Base
@@ -84,10 +89,15 @@ export default function App() {
       }
 
       const { data: mat } = await supabase.from('materiales').select('*').order('nombre');
+      let defaultMaterialId = '';
       if (mat) {
         setMateriales(mat);
-        if (mat.length > 0 && !piezasForm.material_id) {
-          setPiezasForm(prev => ({ ...prev, material_id: mat[0].id }));
+        // Buscar por defecto PLA, o el primer material si no existe
+        const plaMat = mat.find(m => m.nombre.toUpperCase() === 'PLA');
+        defaultMaterialId = plaMat ? plaMat.id : (mat[0]?.id || '');
+        
+        if (!piezasForm.material_id) {
+          setPiezasForm(prev => ({ ...prev, material_id: defaultMaterialId }));
         }
       }
 
@@ -107,7 +117,7 @@ export default function App() {
           setVentaForm(prev => ({ 
             ...prev, 
             pieza_id: pza[0].id,
-            precio_cobrado: calcularCostosPieza(pza[0], pza[0].nivel_servicio_estimativo || 2, pza[0].margen_ganancia_estimativo || 50).precioFinal
+            precio_cobrado: calcularCostosPieza(pza[0], pza[0].nivel_servicio_estimativo || 2, pza[0].margen_ganancia_estimativo || 50, mat).precioFinal
           }));
         }
       }
@@ -128,11 +138,12 @@ export default function App() {
     }
   };
 
-  // CÁLCULO DE COSTOS SEGÚN NIVEL DE SERVICIO (Básico / Estándar / Premium)
-  const calcularCostosPieza = (pieza, nivelServicio = 2, margenGanancia = 50) => {
+  // CÁLCULO DE COSTOS USANDO EL MATERIAL ASIGNADO A LA PIEZA
+  const calcularCostosPieza = (pieza, nivelServicio = 2, margenGanancia = 50, listaMats = materiales) => {
     if (!pieza || !config) return { costoTotal: 0, precioFinal: 0, subtotal: 0 };
 
-    const material = pieza.materiales || materiales.find(m => m.id === pieza.material_id);
+    // Buscar material asignado a la pieza o fallback a lista enviada
+    const material = pieza.materiales || (listaMats || materiales).find(m => m.id === pieza.material_id);
     const precioKg = material ? parseFloat(material.precio_kg) : 0;
     
     const costoMaterial = (parseFloat(pieza.peso_gramos) / 1000) * precioKg;
@@ -142,7 +153,6 @@ export default function App() {
       ? (parseFloat(config.precio_impresora) / parseFloat(config.vida_util_horas)) * tiempoHoras 
       : 0;
 
-    // Asignación de tarifa $/hora por nivel de servicio
     let tarifaServicioHora = parseFloat(config.costo_servicio_estandar || config.costo_servicio_hora || 1500);
     if (parseInt(nivelServicio, 10) === 1) {
       tarifaServicioHora = parseFloat(config.costo_servicio_basico || 1000);
@@ -362,11 +372,14 @@ export default function App() {
   };
 
   const limpiarFormulario = () => {
+    const plaMat = materiales.find(m => m.nombre.toUpperCase() === 'PLA');
+    const defaultMatId = plaMat ? plaMat.id : (materiales[0]?.id || '');
+
     setPiezasForm({
       id: null,
       titulo: '',
       categoria_id: categorias[0]?.id || '',
-      material_id: materiales[0]?.id || '',
+      material_id: defaultMatId,
       peso_gramos: '',
       horas: '',
       minutos: '',
@@ -380,14 +393,24 @@ export default function App() {
     setFormErrors([]);
   };
 
+  // VALIDACIÓN DE PIN DE USUARIOS (3130)
+  const handleUserAuth = (e) => {
+    e.preventDefault();
+    if (userPinInput === '3130') {
+      setIsUserAuthenticated(true);
+      setUserPinInput('');
+    } else alert('PIN de Acceso Incorrecto');
+  };
+
+  // VALIDACIÓN DE PIN DE ADMINISTRADOR (1001)
   const handleAdminAuth = (e) => {
     e.preventDefault();
-    if (adminPinInput === '1234') {
+    if (adminPinInput === '1001') {
       setIsAdmin(true);
       setActiveTab('admin');
       setShowAdminModal(false);
       setAdminPinInput('');
-    } else alert('PIN Incorrecto');
+    } else alert('PIN de Administrador Incorrecto');
   };
 
   const guardarConfiguracion = async (e) => {
@@ -432,6 +455,39 @@ export default function App() {
   };
 
   const stats = resumenStats();
+
+  // BLOQUEO INICIAL CON PIN 3130
+  if (!isUserAuthenticated) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4 font-sans">
+        <div className="bg-slate-900 p-6 rounded-3xl border border-slate-800 max-w-xs w-full space-y-5 shadow-2xl text-center">
+          <div className="bg-emerald-500/10 p-3 rounded-2xl border border-emerald-500/20 w-fit mx-auto">
+            <KeyRound className="w-8 h-8 text-emerald-400" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-white">NiVa App 3D</h2>
+            <p className="text-xs text-slate-400 mt-1">Ingresá el PIN de acceso para acceder a la aplicación</p>
+          </div>
+          <form onSubmit={handleUserAuth} className="space-y-4">
+            <input
+              type="password"
+              placeholder="PIN de Usuario (3130)"
+              value={userPinInput}
+              onChange={(e) => setUserPinInput(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3 text-center text-xl font-mono text-white focus:outline-none focus:border-emerald-500"
+              autoFocus
+            />
+            <button
+              type="submit"
+              className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold py-3 rounded-2xl text-xs shadow-lg transition"
+            >
+              Ingresar a NiVa App
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-white pb-20">
@@ -488,7 +544,6 @@ export default function App() {
               <Settings className="w-5 h-5" /> Panel de Configuración Global
             </h2>
 
-            {/* CONSTANTES GLOBALES Y TARIFAS DE SERVICIO */}
             {config ? (
               <form onSubmit={guardarConfiguracion} className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-3">
                 <h3 className="text-xs font-bold text-slate-300">Constantes de Costo de Equipo</h3>
@@ -925,8 +980,10 @@ export default function App() {
                 <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 flex items-center space-x-2">
                   <Tag className="w-4 h-4 text-emerald-400" />
                   <div>
-                    <span className="text-[10px] text-slate-500 block">Material</span>
-                    <span className="font-semibold text-slate-200">{selectedPiezaModal.materiales?.nombre}</span>
+                    <span className="text-[10px] text-slate-500 block">Material Asignado</span>
+                    <span className="font-semibold text-slate-200">
+                      {selectedPiezaModal.materiales?.nombre || materiales.find(m => m.id === selectedPiezaModal.material_id)?.nombre || 'PLA'}
+                    </span>
                   </div>
                 </div>
                 <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 flex items-center space-x-2">
@@ -1043,7 +1100,7 @@ export default function App() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-slate-300 block mb-1">Material</label>
+                  <label className="text-xs font-medium text-slate-300 block mb-1">Material (Defecto: PLA)</label>
                   <select
                     value={piezasForm.material_id}
                     onChange={(e) => setPiezasForm({ ...piezasForm, material_id: e.target.value })}
@@ -1247,7 +1304,7 @@ export default function App() {
 
       </main>
 
-      {/* MODAL PIN ADMIN */}
+      {/* MODAL PIN ADMIN (PIN 1001) */}
       {showAdminModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900 p-6 rounded-3xl border border-slate-800 max-w-xs w-full space-y-4 shadow-2xl">
@@ -1255,10 +1312,11 @@ export default function App() {
             <form onSubmit={handleAdminAuth} className="space-y-3">
               <input
                 type="password"
-                placeholder="PIN (1234)"
+                placeholder="PIN Admin (1001)"
                 value={adminPinInput}
                 onChange={(e) => setAdminPinInput(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3 text-center text-xl font-mono text-white focus:outline-none focus:border-emerald-500"
+                autoFocus
               />
               <div className="flex gap-2">
                 <button
