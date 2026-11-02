@@ -5,11 +5,14 @@ import {
   Settings, Tag, Package, Calculator, PlusCircle, Edit3, 
   ShoppingCart, BarChart2, Lock, Unlock, Camera, Upload, 
   AlertCircle, CheckCircle2, ChevronRight, Sparkles, Search, 
-  X, Clock, Weight, Maximize2, Check, UserCheck, DollarSign, Wallet, KeyRound 
+  X, Clock, Weight, Maximize2, Check, UserCheck, DollarSign, Wallet, KeyRound, Trash2 
 } from 'lucide-react';
 
 export default function App() {
-  // Autenticación de Accesos
+  // =========================================================================
+  // CLAVES Y PINS DE ACCESO (MODIFICAR AQUÍ SI LOS OLVIDAS)
+  // PIN Usuario: '3130' | PIN Admin: '1001'
+  // =========================================================================
   const [isUserAuthenticated, setIsUserAuthenticated] = useState(false);
   const [userPinInput, setUserPinInput] = useState('');
   
@@ -33,7 +36,7 @@ export default function App() {
   const [simMargenGanancia, setSimMargenGanancia] = useState(50);
   const [savingEstimativo, setSavingEstimativo] = useState(false);
 
-  // Formulario Añadir / Editar
+  // Formulario Añadir / Editar Pieza
   const [piezasForm, setPiezasForm] = useState({
     id: null,
     titulo: '',
@@ -62,7 +65,7 @@ export default function App() {
   const [formErrors, setFormErrors] = useState([]);
   const [successMsg, setSuccessMsg] = useState('');
 
-  // Estados Admin
+  // Estados Admin (Edición y Creación)
   const [nuevoMaterial, setNuevoMaterial] = useState({ nombre: '', precio_kg: '' });
   const [nuevaCategoria, setNuevaCategoria] = useState({ nombre: '', prefijo: '' });
 
@@ -92,7 +95,6 @@ export default function App() {
       let defaultMaterialId = '';
       if (mat) {
         setMateriales(mat);
-        // Buscar por defecto PLA, o el primer material si no existe
         const plaMat = mat.find(m => m.nombre.toUpperCase() === 'PLA');
         defaultMaterialId = plaMat ? plaMat.id : (mat[0]?.id || '');
         
@@ -138,11 +140,9 @@ export default function App() {
     }
   };
 
-  // CÁLCULO DE COSTOS USANDO EL MATERIAL ASIGNADO A LA PIEZA
   const calcularCostosPieza = (pieza, nivelServicio = 2, margenGanancia = 50, listaMats = materiales) => {
     if (!pieza || !config) return { costoTotal: 0, precioFinal: 0, subtotal: 0 };
 
-    // Buscar material asignado a la pieza o fallback a lista enviada
     const material = pieza.materiales || (listaMats || materiales).find(m => m.id === pieza.material_id);
     const precioKg = material ? parseFloat(material.precio_kg) : 0;
     
@@ -393,16 +393,16 @@ export default function App() {
     setFormErrors([]);
   };
 
-  // VALIDACIÓN DE PIN DE USUARIOS (3130)
+  // VALIDACIÓN PIN USUARIOS (3130)
   const handleUserAuth = (e) => {
     e.preventDefault();
     if (userPinInput === '3130') {
       setIsUserAuthenticated(true);
       setUserPinInput('');
-    } else alert('PIN de Acceso Incorrecto');
+    } else alert('PIN Incorrecto');
   };
 
-  // VALIDACIÓN DE PIN DE ADMINISTRADOR (1001)
+  // VALIDACIÓN PIN ADMIN (1001)
   const handleAdminAuth = (e) => {
     e.preventDefault();
     if (adminPinInput === '1001') {
@@ -410,7 +410,7 @@ export default function App() {
       setActiveTab('admin');
       setShowAdminModal(false);
       setAdminPinInput('');
-    } else alert('PIN de Administrador Incorrecto');
+    } else alert('PIN Admin Incorrecto');
   };
 
   const guardarConfiguracion = async (e) => {
@@ -430,6 +430,7 @@ export default function App() {
     else alert(error.message);
   };
 
+  // GESTIÓN MATERIALES (CREAR, EDITAR, ELIMINAR)
   const agregarMaterial = async (e) => {
     e.preventDefault();
     if (!nuevoMaterial.nombre || !nuevoMaterial.precio_kg) return;
@@ -442,6 +443,21 @@ export default function App() {
     } else alert(error.message);
   };
 
+  const actualizarMaterial = async (id, campos) => {
+    const { error } = await supabase.from('materiales').update(campos).eq('id', id);
+    if (!error) cargarDatos();
+    else alert(error.message);
+  };
+
+  const eliminarMaterial = async (id, nombre) => {
+    if (window.confirm(`¿Seguro que querés eliminar el material "${nombre}"?`)) {
+      const { error } = await supabase.from('materiales').delete().eq('id', id);
+      if (!error) cargarDatos();
+      else alert(error.message);
+    }
+  };
+
+  // GESTIÓN CATEGORÍAS (CREAR, EDITAR, ELIMINAR)
   const agregarCategoria = async (e) => {
     e.preventDefault();
     if (!nuevaCategoria.nombre || !nuevaCategoria.prefijo) return;
@@ -454,9 +470,23 @@ export default function App() {
     } else alert(error.message);
   };
 
+  const actualizarCategoria = async (id, campos) => {
+    const { error } = await supabase.from('categorias').update(campos).eq('id', id);
+    if (!error) cargarDatos();
+    else alert(error.message);
+  };
+
+  const eliminarCategoria = async (id, nombre) => {
+    if (window.confirm(`¿Seguro que querés eliminar la categoría "${nombre}"?`)) {
+      const { error } = await supabase.from('categorias').delete().eq('id', id);
+      if (!error) cargarDatos();
+      else alert(error.message);
+    }
+  };
+
   const stats = resumenStats();
 
-  // BLOQUEO INICIAL CON PIN 3130
+  // BLOQUEO INICIAL CON PIN 3130 (SIN AUTOCOMPLETE DE CLAVE)
   if (!isUserAuthenticated) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4 font-sans">
@@ -468,13 +498,15 @@ export default function App() {
             <h2 className="text-lg font-bold text-white">NiVa App 3D</h2>
             <p className="text-xs text-slate-400 mt-1">Ingresá el PIN de acceso para acceder a la aplicación</p>
           </div>
-          <form onSubmit={handleUserAuth} className="space-y-4">
+          <form onSubmit={handleUserAuth} className="space-y-4" autoComplete="off">
             <input
               type="password"
-              placeholder="PIN de Usuario (3130)"
+              name="user_pin_code"
+              placeholder="PIN de Usuario"
               value={userPinInput}
               onChange={(e) => setUserPinInput(e.target.value)}
               className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3 text-center text-xl font-mono text-white focus:outline-none focus:border-emerald-500"
+              autoComplete="new-password"
               autoFocus
             />
             <button
@@ -633,35 +665,45 @@ export default function App() {
               <div className="text-xs text-slate-500 text-center py-4">Cargando configuración...</div>
             )}
 
-            {/* TABLA MATERIALES */}
+            {/* TABLA MATERIALES (CON EDICIÓN Y ELIMINACIÓN) */}
             <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-3">
               <h3 className="text-xs font-bold text-slate-200 flex items-center gap-2">
                 <Tag className="w-4 h-4 text-emerald-400" /> Materiales y Precios por kg
               </h3>
               <div className="space-y-2">
                 {materiales.map((m) => (
-                  <div key={m.id} className="flex justify-between items-center bg-slate-950 p-2.5 rounded-xl border border-slate-800">
-                    <span className="font-semibold text-xs text-slate-300">{m.nombre}</span>
+                  <div key={m.id} className="flex justify-between items-center bg-slate-950 p-2.5 rounded-xl border border-slate-800 gap-2">
+                    <input
+                      type="text"
+                      defaultValue={m.nombre}
+                      onBlur={(e) => actualizarMaterial(m.id, { nombre: e.target.value.toUpperCase() })}
+                      className="bg-transparent text-xs font-semibold text-slate-300 focus:outline-none focus:border-b border-emerald-500 flex-1"
+                    />
                     <div className="flex items-center space-x-1">
                       <span className="text-xs text-slate-500">$</span>
                       <input
                         type="number"
                         defaultValue={m.precio_kg}
-                        onBlur={async (e) => {
-                          await supabase.from('materiales').update({ precio_kg: parseFloat(e.target.value) }).eq('id', m.id);
-                          cargarDatos();
-                        }}
+                        onBlur={(e) => actualizarMaterial(m.id, { precio_kg: parseFloat(e.target.value) })}
                         className="w-20 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-right text-emerald-400 font-mono"
                       />
                       <span className="text-xs text-slate-500">/kg</span>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => eliminarMaterial(m.id, m.nombre)}
+                      className="text-slate-600 hover:text-rose-400 p-1 rounded transition"
+                      title="Eliminar Material"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                 ))}
               </div>
               <form onSubmit={agregarMaterial} className="flex gap-2 pt-2 border-t border-slate-800">
                 <input
                   type="text"
-                  placeholder="Material"
+                  placeholder="Nuevo Material"
                   value={nuevoMaterial.nombre}
                   onChange={(e) => setNuevoMaterial({ ...nuevoMaterial, nombre: e.target.value })}
                   className="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white"
@@ -677,23 +719,39 @@ export default function App() {
               </form>
             </div>
 
-            {/* TABLA CATEGORÍAS */}
+            {/* TABLA CATEGORÍAS (CON EDICIÓN Y ELIMINACIÓN) */}
             <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-3">
               <h3 className="text-xs font-bold text-slate-200">Categorías y Prefijos</h3>
               <div className="space-y-2">
                 {categorias.map((c) => (
-                  <div key={c.id} className="flex justify-between items-center bg-slate-950 p-2.5 rounded-xl border border-slate-800 text-xs">
-                    <span className="font-medium text-slate-300">{c.nombre}</span>
-                    <span className="bg-emerald-950 text-emerald-400 px-2.5 py-1 rounded-lg font-mono font-bold border border-emerald-900">
-                      {c.prefijo}
-                    </span>
+                  <div key={c.id} className="flex justify-between items-center bg-slate-950 p-2.5 rounded-xl border border-slate-800 gap-2">
+                    <input
+                      type="text"
+                      defaultValue={c.nombre}
+                      onBlur={(e) => actualizarCategoria(c.id, { nombre: e.target.value })}
+                      className="bg-transparent text-xs font-medium text-slate-300 focus:outline-none focus:border-b border-emerald-500 flex-1"
+                    />
+                    <input
+                      type="text"
+                      defaultValue={c.prefijo}
+                      onBlur={(e) => actualizarCategoria(c.id, { prefijo: e.target.value.toUpperCase() })}
+                      className="w-16 bg-emerald-950 text-emerald-400 text-center font-mono font-bold text-xs py-1 rounded border border-emerald-900 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => eliminarCategoria(c.id, c.nombre)}
+                      className="text-slate-600 hover:text-rose-400 p-1 rounded transition"
+                      title="Eliminar Categoría"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                 ))}
               </div>
               <form onSubmit={agregarCategoria} className="flex gap-2 pt-2 border-t border-slate-800">
                 <input
                   type="text"
-                  placeholder="Categoría"
+                  placeholder="Nueva Categoría"
                   value={nuevaCategoria.nombre}
                   onChange={(e) => setNuevaCategoria({ ...nuevaCategoria, nombre: e.target.value })}
                   className="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white"
@@ -1304,18 +1362,20 @@ export default function App() {
 
       </main>
 
-      {/* MODAL PIN ADMIN (PIN 1001) */}
+      {/* MODAL PIN ADMIN (PIN 1001, SIN AUTOCOMPLETE DE CLAVE) */}
       {showAdminModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900 p-6 rounded-3xl border border-slate-800 max-w-xs w-full space-y-4 shadow-2xl">
             <h3 className="text-sm font-bold text-center text-white">Ingreso Administrador</h3>
-            <form onSubmit={handleAdminAuth} className="space-y-3">
+            <form onSubmit={handleAdminAuth} className="space-y-3" autoComplete="off">
               <input
                 type="password"
-                placeholder="PIN Admin (1001)"
+                name="admin_pin_code"
+                placeholder="PIN Admin"
                 value={adminPinInput}
                 onChange={(e) => setAdminPinInput(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3 text-center text-xl font-mono text-white focus:outline-none focus:border-emerald-500"
+                autoComplete="new-password"
                 autoFocus
               />
               <div className="flex gap-2">
