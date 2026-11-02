@@ -24,7 +24,7 @@ export default function App() {
   // Buscador y Cotizador
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPiezaModal, setSelectedPiezaModal] = useState(null);
-  const [simNivelServicio, setSimNivelServicio] = useState(2);
+  const [simNivelServicio, setSimNivelServicio] = useState(2); // 1: Básico, 2: Estándar, 3: Premium
   const [simMargenGanancia, setSimMargenGanancia] = useState(50);
   const [savingEstimativo, setSavingEstimativo] = useState(false);
 
@@ -67,7 +67,6 @@ export default function App() {
 
   const cargarDatos = async () => {
     try {
-      // Configuración global con fallback seguro
       const { data: cfg } = await supabase.from('config_global').select('*');
       if (cfg && cfg.length > 0) {
         setConfig(cfg[0]);
@@ -78,11 +77,12 @@ export default function App() {
           consumo_impresora_kw: 0.15,
           precio_impresora: 650000,
           vida_util_horas: 3000,
-          costo_servicio_hora: 1500
+          costo_servicio_basico: 1000,
+          costo_servicio_estandar: 1500,
+          costo_servicio_premium: 2500
         });
       }
 
-      // Materiales
       const { data: mat } = await supabase.from('materiales').select('*').order('nombre');
       if (mat) {
         setMateriales(mat);
@@ -91,7 +91,6 @@ export default function App() {
         }
       }
 
-      // Categorías
       const { data: cat } = await supabase.from('categorias').select('*').order('nombre');
       if (cat) {
         setCategorias(cat);
@@ -101,7 +100,6 @@ export default function App() {
         }
       }
 
-      // Piezas
       const { data: pza } = await supabase.from('piezas').select('*, categorias(*), materiales(*)').order('created_at', { ascending: false });
       if (pza) {
         setPiezas(pza);
@@ -114,7 +112,6 @@ export default function App() {
         }
       }
 
-      // Ventas
       const { data: vts } = await supabase.from('ventas').select('*, piezas(*)').order('created_at', { ascending: false });
       if (vts) setVentas(vts);
 
@@ -131,6 +128,7 @@ export default function App() {
     }
   };
 
+  // CÁLCULO DE COSTOS SEGÚN NIVEL DE SERVICIO (Básico / Estándar / Premium)
   const calcularCostosPieza = (pieza, nivelServicio = 2, margenGanancia = 50) => {
     if (!pieza || !config) return { costoTotal: 0, precioFinal: 0, subtotal: 0 };
 
@@ -143,8 +141,16 @@ export default function App() {
     const costoAmortizacion = config.vida_util_horas > 0 
       ? (parseFloat(config.precio_impresora) / parseFloat(config.vida_util_horas)) * tiempoHoras 
       : 0;
-    const costoServicio = tiempoHoras * parseFloat(config.costo_servicio_hora) * parseFloat(nivelServicio);
 
+    // Asignación de tarifa $/hora por nivel de servicio
+    let tarifaServicioHora = parseFloat(config.costo_servicio_estandar || config.costo_servicio_hora || 1500);
+    if (parseInt(nivelServicio, 10) === 1) {
+      tarifaServicioHora = parseFloat(config.costo_servicio_basico || 1000);
+    } else if (parseInt(nivelServicio, 10) === 3) {
+      tarifaServicioHora = parseFloat(config.costo_servicio_premium || 2500);
+    }
+
+    const costoServicio = tiempoHoras * tarifaServicioHora;
     const subtotal = costoMaterial + costoEnergia + costoAmortizacion + costoServicio;
     const precioFinal = subtotal * (1 + parseFloat(margenGanancia) / 100);
 
@@ -391,7 +397,9 @@ export default function App() {
       consumo_impresora_kw: parseFloat(config.consumo_impresora_kw),
       precio_impresora: parseFloat(config.precio_impresora),
       vida_util_horas: parseFloat(config.vida_util_horas),
-      costo_servicio_hora: parseFloat(config.costo_servicio_hora),
+      costo_servicio_basico: parseFloat(config.costo_servicio_basico || 1000),
+      costo_servicio_estandar: parseFloat(config.costo_servicio_estandar || 1500),
+      costo_servicio_premium: parseFloat(config.costo_servicio_premium || 2500),
       updated_at: new Date()
     }).eq('id', config.id);
 
@@ -473,66 +481,97 @@ export default function App() {
           </div>
         )}
 
-        {/* PESTAÑA: ADMIN (SOLO VISIBLE CUANDO isAdmin = true) */}
+        {/* PESTAÑA: ADMIN */}
         {activeTab === 'admin' && isAdmin && (
           <div className="space-y-5">
             <h2 className="text-base font-bold text-amber-400 flex items-center gap-2">
               <Settings className="w-5 h-5" /> Panel de Configuración Global
             </h2>
 
-            {/* CONSTANTES GLOBALES */}
+            {/* CONSTANTES GLOBALES Y TARIFAS DE SERVICIO */}
             {config ? (
               <form onSubmit={guardarConfiguracion} className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-3">
-                <h3 className="text-xs font-bold text-slate-300">Constantes de Costo</h3>
-                <div>
-                  <label className="text-xs text-slate-400 block mb-1">Precio Energía ($/kWh)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={config.precio_energia_kwh}
-                    onChange={(e) => setConfig({ ...config, precio_energia_kwh: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
-                  />
+                <h3 className="text-xs font-bold text-slate-300">Constantes de Costo de Equipo</h3>
+                
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[11px] text-slate-400 block mb-1">Precio Energía ($/kWh)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={config.precio_energia_kwh || ''}
+                      onChange={(e) => setConfig({ ...config, precio_energia_kwh: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-slate-400 block mb-1">Consumo (kW)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={config.consumo_impresora_kw || ''}
+                      onChange={(e) => setConfig({ ...config, consumo_impresora_kw: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="text-xs text-slate-400 block mb-1">Consumo Impresora (kW)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={config.consumo_impresora_kw}
-                    onChange={(e) => setConfig({ ...config, consumo_impresora_kw: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
-                  />
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[11px] text-slate-400 block mb-1">Precio Impresora ($)</label>
+                    <input
+                      type="number"
+                      value={config.precio_impresora || ''}
+                      onChange={(e) => setConfig({ ...config, precio_impresora: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-slate-400 block mb-1">Vida Útil (Horas)</label>
+                    <input
+                      type="number"
+                      value={config.vida_util_horas || ''}
+                      onChange={(e) => setConfig({ ...config, vida_util_horas: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="text-xs text-slate-400 block mb-1">Precio Impresora ($)</label>
-                  <input
-                    type="number"
-                    value={config.precio_impresora}
-                    onChange={(e) => setConfig({ ...config, precio_impresora: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
-                  />
+
+                <div className="pt-2 border-t border-slate-800">
+                  <h3 className="text-xs font-bold text-emerald-400 mb-2">Tarifas de Servicio $/Hora</h3>
+                  <div className="space-y-2">
+                    <div>
+                      <label className="text-[11px] text-slate-400 block mb-0.5">Servicio Básico ($/h)</label>
+                      <input
+                        type="number"
+                        value={config.costo_servicio_basico || ''}
+                        onChange={(e) => setConfig({ ...config, costo_servicio_basico: e.target.value })}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] text-slate-400 block mb-0.5">Servicio Estándar ($/h)</label>
+                      <input
+                        type="number"
+                        value={config.costo_servicio_estandar || ''}
+                        onChange={(e) => setConfig({ ...config, costo_servicio_estandar: e.target.value })}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] text-slate-400 block mb-0.5">Servicio Express / Premium ($/h)</label>
+                      <input
+                        type="number"
+                        value={config.costo_servicio_premium || ''}
+                        onChange={(e) => setConfig({ ...config, costo_servicio_premium: e.target.value })}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white font-mono"
+                      />
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <label className="text-xs text-slate-400 block mb-1">Vida Útil (Horas)</label>
-                  <input
-                    type="number"
-                    value={config.vida_util_horas}
-                    onChange={(e) => setConfig({ ...config, vida_util_horas: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-slate-400 block mb-1">Costo Servicio/Hora ($/h)</label>
-                  <input
-                    type="number"
-                    value={config.costo_servicio_hora}
-                    onChange={(e) => setConfig({ ...config, costo_servicio_hora: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
-                  />
-                </div>
+
                 <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 font-bold py-2.5 rounded-xl text-xs text-white transition">
-                  Guardar Constantes Globales
+                  Guardar Tarifas y Constantes
                 </button>
               </form>
             ) : (
@@ -914,9 +953,9 @@ export default function App() {
                       onChange={(e) => setSimNivelServicio(parseInt(e.target.value, 10))}
                       className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-xs text-white"
                     >
-                      <option value={1}>1 - Básico</option>
-                      <option value={2}>2 - Estándar</option>
-                      <option value={3}>3 - Express / Premium</option>
+                      <option value={1}>1 - Básico (${config?.costo_servicio_basico || 1000}/h)</option>
+                      <option value={2}>2 - Estándar (${config?.costo_servicio_estandar || 1500}/h)</option>
+                      <option value={3}>3 - Express (${config?.costo_servicio_premium || 2500}/h)</option>
                     </select>
                   </div>
                   <div>
@@ -1276,7 +1315,6 @@ export default function App() {
           <span className="text-[10px] font-medium">Stats</span>
         </button>
 
-        {/* BOTÓN EXCLUSIVO ADMIN EN LA BARRA INFERIOR */}
         {isAdmin && (
           <button
             onClick={() => setActiveTab('admin')}
