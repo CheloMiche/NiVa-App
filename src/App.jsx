@@ -66,40 +66,61 @@ export default function App() {
   }, []);
 
   const cargarDatos = async () => {
-    const { data: cfg } = await supabase.from('config_global').select('*').single();
-    if (cfg) setConfig(cfg);
-
-    const { data: mat } = await supabase.from('materiales').select('*').order('nombre');
-    if (mat) {
-      setMateriales(mat);
-      if (mat.length > 0 && !piezasForm.material_id) {
-        setPiezasForm(prev => ({ ...prev, material_id: mat[0].id }));
+    try {
+      // Configuración global con fallback seguro
+      const { data: cfg } = await supabase.from('config_global').select('*');
+      if (cfg && cfg.length > 0) {
+        setConfig(cfg[0]);
+      } else {
+        setConfig({
+          id: 1,
+          precio_energia_kwh: 250,
+          consumo_impresora_kw: 0.15,
+          precio_impresora: 650000,
+          vida_util_horas: 3000,
+          costo_servicio_hora: 1500
+        });
       }
-    }
 
-    const { data: cat } = await supabase.from('categorias').select('*').order('nombre');
-    if (cat) {
-      setCategorias(cat);
-      if (cat.length > 0 && !piezasForm.categoria_id) {
-        setPiezasForm(prev => ({ ...prev, categoria_id: cat[0].id }));
-        obtenerCodigoCategoria(cat[0].id);
+      // Materiales
+      const { data: mat } = await supabase.from('materiales').select('*').order('nombre');
+      if (mat) {
+        setMateriales(mat);
+        if (mat.length > 0 && !piezasForm.material_id) {
+          setPiezasForm(prev => ({ ...prev, material_id: mat[0].id }));
+        }
       }
-    }
 
-    const { data: pza } = await supabase.from('piezas').select('*, categorias(*), materiales(*)').order('created_at', { ascending: false });
-    if (pza) {
-      setPiezas(pza);
-      if (pza.length > 0 && !ventaForm.pieza_id) {
-        setVentaForm(prev => ({ 
-          ...prev, 
-          pieza_id: pza[0].id,
-          precio_cobrado: calcularCostosPieza(pza[0], pza[0].nivel_servicio_estimativo || 2, pza[0].margen_ganancia_estimativo || 50).precioFinal
-        }));
+      // Categorías
+      const { data: cat } = await supabase.from('categorias').select('*').order('nombre');
+      if (cat) {
+        setCategorias(cat);
+        if (cat.length > 0 && !piezasForm.categoria_id) {
+          setPiezasForm(prev => ({ ...prev, categoria_id: cat[0].id }));
+          obtenerCodigoCategoria(cat[0].id);
+        }
       }
-    }
 
-    const { data: vts } = await supabase.from('ventas').select('*, piezas(*)').order('created_at', { ascending: false });
-    if (vts) setVentas(vts);
+      // Piezas
+      const { data: pza } = await supabase.from('piezas').select('*, categorias(*), materiales(*)').order('created_at', { ascending: false });
+      if (pza) {
+        setPiezas(pza);
+        if (pza.length > 0 && !ventaForm.pieza_id) {
+          setVentaForm(prev => ({ 
+            ...prev, 
+            pieza_id: pza[0].id,
+            precio_cobrado: calcularCostosPieza(pza[0], pza[0].nivel_servicio_estimativo || 2, pza[0].margen_ganancia_estimativo || 50).precioFinal
+          }));
+        }
+      }
+
+      // Ventas
+      const { data: vts } = await supabase.from('ventas').select('*, piezas(*)').order('created_at', { ascending: false });
+      if (vts) setVentas(vts);
+
+    } catch (error) {
+      console.error('Error cargando datos:', error);
+    }
   };
 
   const obtenerCodigoCategoria = async (catId) => {
