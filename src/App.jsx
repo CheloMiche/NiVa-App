@@ -110,7 +110,6 @@ export default function App() {
     }
   };
 
-  // FÓRMULA DE COSTO Y PRECIO FINAL (EXCEL)
   const calcularCostosPieza = (pieza, nivelServicio = 2, margenGanancia = 50) => {
     if (!pieza || !config) return { costoTotal: 0, precioFinal: 0, subtotal: 0 };
 
@@ -166,7 +165,6 @@ export default function App() {
     }
   };
 
-  // GESTIÓN DE VENTAS Y COMISIONES
   const registrarVenta = async (e) => {
     e.preventDefault();
     if (!ventaForm.pieza_id || !ventaForm.precio_cobrado) return;
@@ -376,7 +374,8 @@ export default function App() {
       updated_at: new Date()
     }).eq('id', config.id);
 
-    if (!error) alert('Configuración guardada');
+    if (!error) alert('Configuración guardada exitosamente');
+    else alert(error.message);
   };
 
   const agregarMaterial = async (e) => {
@@ -388,7 +387,7 @@ export default function App() {
     if (!error) {
       setNuevoMaterial({ nombre: '', precio_kg: '' });
       cargarDatos();
-    }
+    } else alert(error.message);
   };
 
   const agregarCategoria = async (e) => {
@@ -400,7 +399,7 @@ export default function App() {
     if (!error) {
       setNuevaCategoria({ nombre: '', prefijo: '' });
       cargarDatos();
-    }
+    } else alert(error.message);
   };
 
   const stats = resumenStats();
@@ -423,7 +422,14 @@ export default function App() {
         </div>
 
         <button
-          onClick={() => (isAdmin ? setIsAdmin(false) : setShowAdminModal(true))}
+          onClick={() => {
+            if (isAdmin) {
+              setIsAdmin(false);
+              if (activeTab === 'admin') setActiveTab('cotizar');
+            } else {
+              setShowAdminModal(true);
+            }
+          }}
           className={`flex items-center space-x-1.5 text-xs px-3 py-1.5 rounded-full font-medium transition border ${
             isAdmin 
               ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' 
@@ -431,36 +437,162 @@ export default function App() {
           }`}
         >
           {isAdmin ? <Unlock className="w-3.5 h-3.5 text-amber-400" /> : <Lock className="w-3.5 h-3.5 text-slate-400" />}
-          <span>{isAdmin ? 'Admin' : 'Usuario'}</span>
+          <span>{isAdmin ? 'Admin Activo' : 'Ingreso Admin'}</span>
         </button>
       </header>
 
       {/* CONTENIDO PRINCIPAL */}
       <main className="flex-1 p-4 max-w-md mx-auto w-full">
-        
-        {/* NAVEGACIÓN SECUNDARIA ADMIN */}
-        {isAdmin && (
-          <div className="mb-5 bg-slate-900 p-1 rounded-xl border border-slate-800 flex justify-around">
-            <button
-              onClick={() => setActiveTab('cotizar')}
-              className={`flex-1 py-2 text-xs font-semibold rounded-lg transition ${activeTab !== 'admin' ? 'bg-slate-800 text-emerald-400 shadow' : 'text-slate-400 hover:text-slate-200'}`}
-            >
-              Menú Principal
-            </button>
-            <button
-              onClick={() => setActiveTab('admin')}
-              className={`flex-1 py-2 text-xs font-semibold rounded-lg transition ${activeTab === 'admin' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
-            >
-              Configuración Admin
-            </button>
-          </div>
-        )}
 
         {/* ALERTA DE ÉXITO */}
         {successMsg && (
           <div className="mb-4 bg-emerald-500/10 border border-emerald-500/30 p-3 rounded-xl flex items-center space-x-2 text-emerald-300 text-xs">
             <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
             <span>{successMsg}</span>
+          </div>
+        )}
+
+        {/* PESTAÑA: ADMIN (SOLO VISIBLE CUANDO isAdmin = true) */}
+        {activeTab === 'admin' && isAdmin && (
+          <div className="space-y-5">
+            <h2 className="text-base font-bold text-amber-400 flex items-center gap-2">
+              <Settings className="w-5 h-5" /> Panel de Configuración Global
+            </h2>
+
+            {/* CONSTANTES GLOBALES */}
+            {config ? (
+              <form onSubmit={guardarConfiguracion} className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-3">
+                <h3 className="text-xs font-bold text-slate-300">Constantes de Costo</h3>
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Precio Energía ($/kWh)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={config.precio_energia_kwh}
+                    onChange={(e) => setConfig({ ...config, precio_energia_kwh: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Consumo Impresora (kW)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={config.consumo_impresora_kw}
+                    onChange={(e) => setConfig({ ...config, consumo_impresora_kw: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Precio Impresora ($)</label>
+                  <input
+                    type="number"
+                    value={config.precio_impresora}
+                    onChange={(e) => setConfig({ ...config, precio_impresora: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Vida Útil (Horas)</label>
+                  <input
+                    type="number"
+                    value={config.vida_util_horas}
+                    onChange={(e) => setConfig({ ...config, vida_util_horas: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Costo Servicio/Hora ($/h)</label>
+                  <input
+                    type="number"
+                    value={config.costo_servicio_hora}
+                    onChange={(e) => setConfig({ ...config, costo_servicio_hora: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
+                  />
+                </div>
+                <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 font-bold py-2.5 rounded-xl text-xs text-white transition">
+                  Guardar Constantes Globales
+                </button>
+              </form>
+            ) : (
+              <div className="text-xs text-slate-500 text-center py-4">Cargando configuración...</div>
+            )}
+
+            {/* TABLA MATERIALES */}
+            <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-3">
+              <h3 className="text-xs font-bold text-slate-200 flex items-center gap-2">
+                <Tag className="w-4 h-4 text-emerald-400" /> Materiales y Precios por kg
+              </h3>
+              <div className="space-y-2">
+                {materiales.map((m) => (
+                  <div key={m.id} className="flex justify-between items-center bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                    <span className="font-semibold text-xs text-slate-300">{m.nombre}</span>
+                    <div className="flex items-center space-x-1">
+                      <span className="text-xs text-slate-500">$</span>
+                      <input
+                        type="number"
+                        defaultValue={m.precio_kg}
+                        onBlur={async (e) => {
+                          await supabase.from('materiales').update({ precio_kg: parseFloat(e.target.value) }).eq('id', m.id);
+                          cargarDatos();
+                        }}
+                        className="w-20 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-right text-emerald-400 font-mono"
+                      />
+                      <span className="text-xs text-slate-500">/kg</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <form onSubmit={agregarMaterial} className="flex gap-2 pt-2 border-t border-slate-800">
+                <input
+                  type="text"
+                  placeholder="Material"
+                  value={nuevoMaterial.nombre}
+                  onChange={(e) => setNuevoMaterial({ ...nuevoMaterial, nombre: e.target.value })}
+                  className="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white"
+                />
+                <input
+                  type="number"
+                  placeholder="$/kg"
+                  value={nuevoMaterial.precio_kg}
+                  onChange={(e) => setNuevoMaterial({ ...nuevoMaterial, precio_kg: e.target.value })}
+                  className="w-20 bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white"
+                />
+                <button type="submit" className="bg-emerald-600 px-3 py-2 rounded-xl text-xs font-bold">+</button>
+              </form>
+            </div>
+
+            {/* TABLA CATEGORÍAS */}
+            <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-3">
+              <h3 className="text-xs font-bold text-slate-200">Categorías y Prefijos</h3>
+              <div className="space-y-2">
+                {categorias.map((c) => (
+                  <div key={c.id} className="flex justify-between items-center bg-slate-950 p-2.5 rounded-xl border border-slate-800 text-xs">
+                    <span className="font-medium text-slate-300">{c.nombre}</span>
+                    <span className="bg-emerald-950 text-emerald-400 px-2.5 py-1 rounded-lg font-mono font-bold border border-emerald-900">
+                      {c.prefijo}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <form onSubmit={agregarCategoria} className="flex gap-2 pt-2 border-t border-slate-800">
+                <input
+                  type="text"
+                  placeholder="Categoría"
+                  value={nuevaCategoria.nombre}
+                  onChange={(e) => setNuevaCategoria({ ...nuevaCategoria, nombre: e.target.value })}
+                  className="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white"
+                />
+                <input
+                  type="text"
+                  placeholder="Prefijo"
+                  value={nuevaCategoria.prefijo}
+                  onChange={(e) => setNuevaCategoria({ ...nuevaCategoria, prefijo: e.target.value })}
+                  className="w-20 bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white"
+                />
+                <button type="submit" className="bg-emerald-600 px-3 py-2 rounded-xl text-xs font-bold">+</button>
+              </form>
+            </div>
           </div>
         )}
 
@@ -1053,142 +1185,6 @@ export default function App() {
           </div>
         )}
 
-        {/* PESTAÑA ADMIN */}
-        {activeTab === 'admin' && isAdmin && config && (
-          <div className="space-y-5">
-            <h2 className="text-base font-bold text-emerald-400 flex items-center gap-2">
-              <Settings className="w-5 h-5" /> Configuración Global de Costos
-            </h2>
-
-            <form onSubmit={guardarConfiguracion} className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-3">
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Precio Energía ($/kWh)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={config.precio_energia_kwh}
-                  onChange={(e) => setConfig({ ...config, precio_energia_kwh: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Consumo Impresora (kW)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={config.consumo_impresora_kw}
-                  onChange={(e) => setConfig({ ...config, consumo_impresora_kw: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Precio Impresora ($)</label>
-                <input
-                  type="number"
-                  value={config.precio_impresora}
-                  onChange={(e) => setConfig({ ...config, precio_impresora: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Vida Útil (Horas)</label>
-                <input
-                  type="number"
-                  value={config.vida_util_horas}
-                  onChange={(e) => setConfig({ ...config, vida_util_horas: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Costo Servicio/Hora ($/h)</label>
-                <input
-                  type="number"
-                  value={config.costo_servicio_hora}
-                  onChange={(e) => setConfig({ ...config, costo_servicio_hora: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white"
-                />
-              </div>
-              <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 font-bold py-2.5 rounded-xl text-xs text-white transition">
-                Guardar Constantes Globales
-              </button>
-            </form>
-
-            <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-3">
-              <h3 className="text-xs font-bold text-slate-200 flex items-center gap-2">
-                <Tag className="w-4 h-4 text-emerald-400" /> Materiales y Precios por kg
-              </h3>
-              <div className="space-y-2">
-                {materiales.map((m) => (
-                  <div key={m.id} className="flex justify-between items-center bg-slate-950 p-2.5 rounded-xl border border-slate-800">
-                    <span className="font-semibold text-xs text-slate-300">{m.nombre}</span>
-                    <div className="flex items-center space-x-1">
-                      <span className="text-xs text-slate-500">$</span>
-                      <input
-                        type="number"
-                        defaultValue={m.precio_kg}
-                        onBlur={async (e) => {
-                          await supabase.from('materiales').update({ precio_kg: parseFloat(e.target.value) }).eq('id', m.id);
-                          cargarDatos();
-                        }}
-                        className="w-20 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-right text-emerald-400 font-mono"
-                      />
-                      <span className="text-xs text-slate-500">/kg</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <form onSubmit={agregarMaterial} className="flex gap-2 pt-2 border-t border-slate-800">
-                <input
-                  type="text"
-                  placeholder="Material"
-                  value={nuevoMaterial.nombre}
-                  onChange={(e) => setNuevoMaterial({ ...nuevoMaterial, nombre: e.target.value })}
-                  className="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white"
-                />
-                <input
-                  type="number"
-                  placeholder="$/kg"
-                  value={nuevoMaterial.precio_kg}
-                  onChange={(e) => setNuevoMaterial({ ...nuevoMaterial, precio_kg: e.target.value })}
-                  className="w-20 bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white"
-                />
-                <button type="submit" className="bg-emerald-600 px-3 py-2 rounded-xl text-xs font-bold">+</button>
-              </form>
-            </div>
-
-            <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-3">
-              <h3 className="text-xs font-bold text-slate-200">Categorías y Prefijos</h3>
-              <div className="space-y-2">
-                {categorias.map((c) => (
-                  <div key={c.id} className="flex justify-between items-center bg-slate-950 p-2.5 rounded-xl border border-slate-800 text-xs">
-                    <span className="font-medium text-slate-300">{c.nombre}</span>
-                    <span className="bg-emerald-950 text-emerald-400 px-2.5 py-1 rounded-lg font-mono font-bold border border-emerald-900">
-                      {c.prefijo}
-                    </span>
-                  </div>
-                ))}
-              </div>
-              <form onSubmit={agregarCategoria} className="flex gap-2 pt-2 border-t border-slate-800">
-                <input
-                  type="text"
-                  placeholder="Categoría"
-                  value={nuevaCategoria.nombre}
-                  onChange={(e) => setNuevaCategoria({ ...nuevaCategoria, nombre: e.target.value })}
-                  className="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white"
-                />
-                <input
-                  type="text"
-                  placeholder="Prefijo"
-                  value={nuevaCategoria.prefijo}
-                  onChange={(e) => setNuevaCategoria({ ...nuevaCategoria, prefijo: e.target.value })}
-                  className="w-20 bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white"
-                />
-                <button type="submit" className="bg-emerald-600 px-3 py-2 rounded-xl text-xs font-bold">+</button>
-              </form>
-            </div>
-          </div>
-        )}
-
       </main>
 
       {/* MODAL PIN ADMIN */}
@@ -1222,7 +1218,7 @@ export default function App() {
       )}
 
       {/* NAVEGACIÓN INFERIOR PWA */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-slate-900/90 backdrop-blur-lg border-t border-slate-800 py-2 px-3 flex justify-around items-center z-40">
+      <nav className="fixed bottom-0 left-0 right-0 bg-slate-900/90 backdrop-blur-lg border-t border-slate-800 py-2 px-2 flex justify-around items-center z-40">
         <button
           onClick={() => setActiveTab('cotizar')}
           className={`flex flex-col items-center space-y-1 transition ${activeTab === 'cotizar' ? 'text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}
@@ -1232,34 +1228,4 @@ export default function App() {
         </button>
         <button
           onClick={() => { limpiarFormulario(); setActiveTab('anadir'); }}
-          className={`flex flex-col items-center space-y-1 transition ${activeTab === 'anadir' ? 'text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}
-        >
-          <PlusCircle className="w-5 h-5" />
-          <span className="text-[10px] font-medium">Añadir</span>
-        </button>
-        <button
-          onClick={() => { limpiarFormulario(); setActiveTab('editar'); }}
-          className={`flex flex-col items-center space-y-1 transition ${activeTab === 'editar' ? 'text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}
-        >
-          <Edit3 className="w-5 h-5" />
-          <span className="text-[10px] font-medium">Editar</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('venta')}
-          className={`flex flex-col items-center space-y-1 transition ${activeTab === 'venta' ? 'text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}
-        >
-          <ShoppingCart className="w-5 h-5" />
-          <span className="text-[10px] font-medium">Venta</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('estadisticas')}
-          className={`flex flex-col items-center space-y-1 transition ${activeTab === 'estadisticas' ? 'text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}
-        >
-          <BarChart2 className="w-5 h-5" />
-          <span className="text-[10px] font-medium">Stats</span>
-        </button>
-      </nav>
-
-    </div>
-  );
-}
+          className={`flex flex-col items-center space-y-1 transition ${activeTab === 'anadir' ? 'text-emerald-400' :
