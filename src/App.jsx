@@ -53,6 +53,7 @@ export default function App() {
   // Modales de Cotización y Reemplazo
   const [pedidoCotizando, setPedidoCotizando] = useState(null);
   const [precioCotizadoManualTotal, setPrecioCotizadoManualTotal] = useState('');
+  const [descuentoMargenAplicado, setDescuentoMargenAplicado] = useState(null);
 
   const [pedidoReemplazando, setPedidoReemplazando] = useState(null);
   const [searchReemplazar, setSearchReemplazar] = useState('');
@@ -187,7 +188,7 @@ export default function App() {
     };
   };
 
-  // REGISTRO DE NUEVO PEDIDO (CON CANTIDAD)
+  // REGISTRO DE NUEVO PEDIDO
   const registrarPedido = async (e) => {
     e.preventDefault();
     if (!pedidoForm.cliente.trim()) {
@@ -232,7 +233,7 @@ export default function App() {
     } else alert(error.message);
   };
 
-  // BOTÓN 1: COTIZAR PEDIDO (CON CÁLCULO TOTAL POR CANTIDAD)
+  // BOTÓN 1: COTIZAR PEDIDO (CON DESCUENTO EN % DE GANANCIA O MONTO MANUAL)
   const abrirModalCotizarPedido = (pd) => {
     setPedidoCotizando(pd);
     const cant = pd.cantidad || 1;
@@ -247,6 +248,19 @@ export default function App() {
     } else {
       setPrecioCotizadoManualTotal(pd.precio_cotizado || '');
     }
+    setDescuentoMargenAplicado(null);
+  };
+
+  const aplicarPorcentajeGananciaPedido = (pct) => {
+    if (!pedidoCotizando || !pedidoCotizando.piezas) return;
+    const cant = pedidoCotizando.cantidad || 1;
+    const uCalc = calcularCostosPiezaUnitario(
+      pedidoCotizando.piezas,
+      pedidoCotizando.piezas.nivel_servicio_estimativo || 2,
+      pct // Aplica el % de ganancia directamente
+    );
+    setDescuentoMargenAplicado(pct);
+    setPrecioCotizadoManualTotal(uCalc.precioFinal * cant);
   };
 
   const confirmarCotizacionPedido = async () => {
@@ -324,7 +338,7 @@ export default function App() {
     } else alert(error.message);
   };
 
-  // REGISTRO DE VENTA CON REGLA DE DESCUENTO/AUMENTO AL VENDEDOR
+  // REGISTRO DE VENTA CON VARIACIÓN ABSORBIDA/LLEVADA POR EL VENDEDOR
   const registrarVenta = async (e) => {
     e.preventDefault();
     if (!ventaForm.pieza_id || !ventaForm.precio_cobrado) return;
@@ -335,13 +349,10 @@ export default function App() {
 
     const uCalc = calcularCostosPiezaUnitario(piezaSel, piezaSel.nivel_servicio_estimativo || 2, piezaSel.margen_ganancia_estimativo || 50);
 
-    // Costos totales multiplicados por cantidad
     const costoInsumosTotal = (uCalc.costoMaterial + uCalc.costoEnergia + uCalc.costoAmortizacion) * cant;
     const costoServicioTotal = uCalc.costoServicio * cant;
     const costoBaseTotal = uCalc.subtotal * cant;
 
-    // Regla Financiera: La variación de precio (aumento o descuento) la absorbe o se la lleva el VENDEDOR
-    // Vendedor = Ganancia Base Estimada + (Precio Cobrado - Costo Base Sugerido)
     const gananciaVendedorFinal = Math.max(0, precioTotalCobrado - costoBaseTotal);
 
     const { error } = await supabase.from('ventas').insert([{
@@ -758,7 +769,7 @@ export default function App() {
         </button>
       </header>
 
-      {/* CONTENIDO PRINCIPAL (FUENTE MÁS GRANDE) */}
+      {/* CONTENIDO PRINCIPAL */}
       <main className="flex-1 p-4 max-w-md mx-auto w-full space-y-4">
 
         {/* ALERTA DE ÉXITO */}
@@ -956,7 +967,6 @@ export default function App() {
                   return (
                     <div key={pd.id} className="bg-slate-900 border border-slate-800 p-4 rounded-2xl space-y-3 shadow-md">
                       
-                      {/* ENCABEZADO CLIENTE & CANTIDAD */}
                       <div className="flex justify-between items-start">
                         <div>
                           <div className="flex items-center space-x-2">
@@ -1349,7 +1359,7 @@ export default function App() {
           </div>
         )}
 
-        {/* MODAL COTIZAR PEDIDO (CON CÁLCULO TOTAL Y UNITARIO) */}
+        {/* MODAL COTIZAR PEDIDO (CON SELECTOR DE % GANANCIA IGUAL A COTIZAR O MANUAL) */}
         {pedidoCotizando && (
           <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
             <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl">
@@ -1364,41 +1374,48 @@ export default function App() {
               </div>
 
               {pedidoCotizando.piezas && (
-                <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-2 text-xs">
+                <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-2.5 text-xs">
                   <div className="flex justify-between">
                     <span className="text-slate-400">Pieza:</span>
                     <span className="font-bold text-white">{pedidoCotizando.piezas.titulo}</span>
                   </div>
-                  {(() => {
-                    const u = calcularCostosPiezaUnitario(pedidoCotizando.piezas, pedidoCotizando.piezas.nivel_servicio_estimativo || 2, pedidoCotizando.piezas.margen_ganancia_estimativo || 50);
-                    const c = pedidoCotizando.cantidad || 1;
-                    return (
-                      <div className="space-y-1 text-[11px] border-t border-slate-800/80 pt-2 font-mono">
-                        <div className="flex justify-between text-slate-400">
-                          <span>Sugerido Unitario:</span>
-                          <span>${u.precioFinal}</span>
-                        </div>
-                        <div className="flex justify-between text-emerald-400 font-bold">
-                          <span>Sugerido Total ({c} u.):</span>
-                          <span>${u.precioFinal * c}</span>
-                        </div>
-                      </div>
-                    );
-                  })()}
+
+                  <div>
+                    <label className="text-[11px] text-slate-400 block mb-1">Aplicar % de Ganancia Directo:</label>
+                    <div className="flex gap-1.5">
+                      {[0, 10, 20, 30, 40, 50, 70, 100].map(pct => (
+                        <button
+                          key={pct}
+                          type="button"
+                          onClick={() => aplicarPorcentajeGananciaPedido(pct)}
+                          className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold border font-mono transition ${
+                            descuentoMargenAplicado === pct 
+                              ? 'bg-emerald-600 border-emerald-500 text-white' 
+                              : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
+                          }`}
+                        >
+                          {pct}%
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               )}
 
               <div>
-                <label className="text-xs font-semibold text-slate-300 block mb-1">Precio Final Cotizado Total ($)</label>
+                <label className="text-xs font-semibold text-slate-300 block mb-1">Monto Total Cotizado / Manual ($)</label>
                 <input
                   type="number"
                   value={precioCotizadoManualTotal}
-                  onChange={(e) => setPrecioCotizadoManualTotal(e.target.value)}
+                  onChange={(e) => {
+                    setPrecioCotizadoManualTotal(e.target.value);
+                    setDescuentoMargenAplicado(null);
+                  }}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-lg font-mono font-bold text-emerald-400 text-center"
                 />
                 {precioCotizadoManualTotal && (pedidoCotizando.cantidad || 1) > 1 && (
                   <span className="text-[10px] text-slate-400 font-mono text-center block mt-1">
-                    Equivalente a ${Math.round(precioCotizadoManualTotal / (pedidoCotizando.cantidad || 1)).toLocaleString()} / unidad
+                    Dividido en {pedidoCotizando.cantidad} u. = <strong className="text-emerald-400">${Math.round(precioCotizadoManualTotal / pedidoCotizando.cantidad).toLocaleString()}</strong> / unidad
                   </span>
                 )}
               </div>
