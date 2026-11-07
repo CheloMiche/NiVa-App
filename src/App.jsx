@@ -304,13 +304,15 @@ export default function App() {
     }
   };
 
-  // FABRICAR Y PASAR DIRECTO A PENDIENTES DE COBRO (CON EL CLIENTE CORRECTO)
+  // FABRICAR Y PASAR DIRECTO A VENTAS PENDIENTES (TRANSPASA EL NOMBRE DEL CLIENTE DIRECTO)
   const registrarFabricacionYTransferir = async (pd) => {
     if (!pd.pieza_id) {
       alert('Para fabricar el pedido, primero debes asignarle una pieza del catálogo existente.');
       setPedidoReemplazando(pd);
       return;
     }
+
+    const clienteReal = pd.cliente ? pd.cliente.trim() : 'Sin Nombre';
 
     const piezaSel = piezas.find(p => p.id === pd.pieza_id);
     const cant = pd.cantidad || 1;
@@ -324,7 +326,7 @@ export default function App() {
 
     const payloadVenta = {
       pieza_id: pd.pieza_id,
-      cliente: pd.cliente ? pd.cliente.trim() : 'Venta Mostrador',
+      cliente: clienteReal, // GUARDA EL NOMBRE EXACTO DEL CLIENTE EN LA TABLA VENTAS
       cantidad: cant,
       vendedor: pd.recibido_por || 'Papi',
       fabricante: 'NiVa',
@@ -341,7 +343,7 @@ export default function App() {
 
     if (!errVenta) {
       await supabase.from('pedidos').delete().eq('id', pd.id);
-      setSuccessMsg(`¡Pedido de ${pd.cliente} fabricado! Quedó listo en Ventas Pendientes de Cobro.`);
+      setSuccessMsg(`¡Pedido de ${clienteReal} fabricado! Quedó listo en Ventas Pendientes.`);
       cargarDatos();
       setActiveTab('venta');
       setTimeout(() => setSuccessMsg(''), 4000);
@@ -363,7 +365,7 @@ export default function App() {
     } else alert(error.message);
   };
 
-  // REGISTRO DE VENTA MANUAL EN ESTADO PENDIENTE DE COBRO
+  // REGISTRO DE VENTA MANUAL EN PENDIENTE DE COBRO
   const registrarVenta = async (e) => {
     e.preventDefault();
     if (!ventaForm.pieza_id || !ventaForm.precio_cobrado) return;
@@ -377,12 +379,11 @@ export default function App() {
     const costoInsumosTotal = (uCalc.costoMaterial + uCalc.costoEnergia + uCalc.costoAmortizacion) * cant;
     const costoServicioTotal = uCalc.costoServicio * cant;
     const costoBaseTotal = uCalc.subtotal * cant;
-
     const gananciaVendedorFinal = Math.max(0, precioTotalCobrado - costoBaseTotal);
 
     const payload = {
       pieza_id: ventaForm.pieza_id,
-      cliente: ventaForm.cliente.trim() || 'Venta Mostrador',
+      cliente: ventaForm.cliente.trim() || 'Sin Nombre',
       cantidad: cant,
       vendedor: ventaForm.vendedor,
       fabricante: ventaForm.fabricante,
@@ -405,7 +406,7 @@ export default function App() {
     } else alert(error.message);
   };
 
-  // CONFIRMAR Y COBRAR VENTA (PASO FINAL HACIA ESTADÍSTICAS)
+  // CONFIRMAR Y COBRAR VENTA (PASO FINAL HACIA STATS)
   const marcarComoCobrado = async (ventaId) => {
     const { error } = await supabase.from('ventas').update({ cobrado: true }).eq('id', ventaId);
     if (!error) {
@@ -1355,10 +1356,10 @@ export default function App() {
                 ventasPendientesCobro.map(v => (
                   <div key={v.id} className="bg-slate-900 border border-amber-500/30 p-3.5 rounded-2xl space-y-2.5 shadow-md">
                     
-                    {/* ENCABEZADO: CLIENTE ARRIBA A LA IZQUIERDA | MONTO A LA DERECHA */}
+                    {/* NOMBRE DEL CLIENTE ARRIBA A LA IZQUIERDA Y MONTO A LA DERECHA */}
                     <div className="flex justify-between items-baseline">
                       <span className="text-sm font-extrabold text-amber-400 truncate">
-                        {v.cliente || 'Venta Mostrador'}
+                        {v.cliente || 'Sin Nombre'}
                       </span>
                       <div className="text-right flex-shrink-0">
                         <span className="font-mono font-black text-emerald-400 text-base">${v.precio_cobrado}</span>
