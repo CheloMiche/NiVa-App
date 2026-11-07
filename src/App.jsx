@@ -50,7 +50,7 @@ export default function App() {
   const [searchPiezaPedido, setSearchPiezaPedido] = useState('');
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
 
-  // Modales de Cotización y Reemplazo
+  // Modales de Cotización, Reemplazo y Fabricación
   const [pedidoCotizando, setPedidoCotizando] = useState(null);
   const [cotizNivelServicio, setCotizNivelServicio] = useState(2);
   const [cotizMargenGanancia, setCotizMargenGanancia] = useState(50);
@@ -58,6 +58,11 @@ export default function App() {
 
   const [pedidoReemplazando, setPedidoReemplazando] = useState(null);
   const [searchReemplazar, setSearchReemplazar] = useState('');
+
+  // Modal de Fabricación (Selección Vendedor y Fabricante)
+  const [pedidoFabricandoModal, setPedidoFabricandoModal] = useState(null);
+  const [fabVendedor, setFabVendedor] = useState('Papi');
+  const [fabFabricante, setFabFabricante] = useState('NiVa');
 
   // Formulario Añadir / Editar Pieza
   const [piezasForm, setPiezasForm] = useState({
@@ -75,7 +80,7 @@ export default function App() {
     es_multicolor: false
   });
 
-  // Formulario Venta (Con Cliente, Cantidad y Cobro)
+  // Formulario Venta Manual
   const [ventaForm, setVentaForm] = useState({
     pedido_id: null,
     cliente: '',
@@ -235,7 +240,7 @@ export default function App() {
     } else alert(error.message);
   };
 
-  // ABRIR MODAL DE COTIZAR CON MÓDULO INTEGRADO
+  // ABRIR MODAL DE COTIZAR
   const abrirModalCotizarPedido = (pd) => {
     setPedidoCotizando(pd);
     const cant = pd.cantidad || 1;
@@ -304,14 +309,22 @@ export default function App() {
     }
   };
 
-  // FABRICAR Y PASAR DIRECTO A VENTAS PENDIENTES (TRANSPASA EL NOMBRE DEL CLIENTE DIRECTO)
-  const registrarFabricacionYTransferir = async (pd) => {
+  // ABRIR MODAL DE FABRICACIÓN (SELECCIÓN DE VENDEDOR Y FABRICANTE)
+  const iniciarFabricacionPedido = (pd) => {
     if (!pd.pieza_id) {
       alert('Para fabricar el pedido, primero debes asignarle una pieza del catálogo existente.');
       setPedidoReemplazando(pd);
       return;
     }
+    setPedidoFabricandoModal(pd);
+    setFabVendedor(pd.recibido_por || 'Papi');
+    setFabFabricante('NiVa');
+  };
 
+  // CONFIRMAR FABRICACIÓN Y TRASPASAR A VENTAS CON LOS DATOS ELEGIDOS
+  const confirmarFabricacionYTransferir = async () => {
+    if (!pedidoFabricandoModal) return;
+    const pd = pedidoFabricandoModal;
     const clienteReal = pd.cliente ? pd.cliente.trim() : 'Sin Nombre';
 
     const piezaSel = piezas.find(p => p.id === pd.pieza_id);
@@ -326,10 +339,10 @@ export default function App() {
 
     const payloadVenta = {
       pieza_id: pd.pieza_id,
-      cliente: clienteReal, // GUARDA EL NOMBRE EXACTO DEL CLIENTE EN LA TABLA VENTAS
+      cliente: clienteReal,
       cantidad: cant,
-      vendedor: pd.recibido_por || 'Papi',
-      fabricante: 'NiVa',
+      vendedor: fabVendedor,
+      fabricante: fabFabricante,
       precio_cobrado: precioTotalCobrado,
       precio_unitario: cant > 0 ? precioTotalCobrado / cant : precioTotalCobrado,
       costo_insumos: costoInsumosTotal,
@@ -344,6 +357,7 @@ export default function App() {
     if (!errVenta) {
       await supabase.from('pedidos').delete().eq('id', pd.id);
       setSuccessMsg(`¡Pedido de ${clienteReal} fabricado! Quedó listo en Ventas Pendientes.`);
+      setPedidoFabricandoModal(null);
       cargarDatos();
       setActiveTab('venta');
       setTimeout(() => setSuccessMsg(''), 4000);
@@ -406,7 +420,7 @@ export default function App() {
     } else alert(error.message);
   };
 
-  // CONFIRMAR Y COBRAR VENTA (PASO FINAL HACIA STATS)
+  // CONFIRMAR Y COBRAR VENTA
   const marcarComoCobrado = async (ventaId) => {
     const { error } = await supabase.from('ventas').update({ cobrado: true }).eq('id', ventaId);
     if (!error) {
@@ -416,7 +430,7 @@ export default function App() {
     } else alert(error.message);
   };
 
-  // AGRUPACIÓN Y ORDENAMIENTO DE PEDIDOS (PRIORIDAD ALTA POR CLIENTE + FECHA)
+  // AGRUPACIÓN Y ORDENAMIENTO DE PEDIDOS
   const obtenerPedidosProcesados = () => {
     const prioridadesPorCliente = {};
     const pesoPrioridad = { 'Alta': 3, 'Media': 2, 'Baja': 1 };
@@ -1101,7 +1115,7 @@ export default function App() {
                         </div>
 
                         <button
-                          onClick={() => registrarFabricacionYTransferir(pd)}
+                          onClick={() => iniciarFabricacionPedido(pd)}
                           disabled={!esAprobado}
                           className={`py-2 px-1 rounded-xl text-xs font-bold border transition flex items-center justify-center space-x-1 ${
                             esFabricado 
@@ -1461,6 +1475,86 @@ export default function App() {
               )}
             </div>
 
+          </div>
+        )}
+
+        {/* MODAL / CARTELITO PARA SELECCIONAR VENDEDOR Y FABRICANTE AL FABRICAR */}
+        {pedidoFabricandoModal && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl">
+              <div className="flex justify-between items-start border-b border-slate-800 pb-3">
+                <div>
+                  <span className="text-[10px] text-amber-400 font-bold uppercase">Confirmar Fabricación</span>
+                  <h3 className="text-sm font-bold text-white">{pedidoFabricandoModal.cliente}</h3>
+                </div>
+                <button onClick={() => setPedidoFabricandoModal(null)} className="text-slate-400 hover:text-white">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1 flex items-center gap-1">
+                    <User className="w-3.5 h-3.5 text-emerald-400" /> ¿Quién Vendió?
+                  </label>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {['Papi', 'Nadia', 'Valen', 'Nico'].map(v => (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() => setFabVendedor(v)}
+                        className={`py-2 text-xs font-bold rounded-xl border transition ${
+                          fabVendedor === v 
+                            ? 'bg-emerald-600 border-emerald-500 text-white' 
+                            : 'bg-slate-950 border-slate-800 text-slate-400'
+                        }`}
+                      >
+                        {v}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1 flex items-center gap-1">
+                    <Wrench className="w-3.5 h-3.5 text-amber-400" /> ¿Quién Fabricó?
+                  </label>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {['Nico', 'Valen', 'NiVa'].map(f => (
+                      <button
+                        key={f}
+                        type="button"
+                        onClick={() => setFabFabricante(f)}
+                        className={`py-2 text-xs font-bold rounded-xl border transition ${
+                          fabFabricante === f 
+                            ? 'bg-amber-600 border-amber-500 text-white' 
+                            : 'bg-slate-950 border-slate-800 text-slate-400'
+                        }`}
+                      >
+                        {f === 'NiVa' ? 'Empresa' : f}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setPedidoFabricandoModal(null)}
+                  className="flex-1 bg-slate-800 py-3 rounded-xl text-xs font-bold text-slate-300"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmarFabricacionYTransferir}
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-500 py-3 rounded-xl text-xs font-bold text-white shadow-lg"
+                >
+                  Confirmar y Pasar a Ventas
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
