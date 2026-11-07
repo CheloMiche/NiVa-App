@@ -52,8 +52,9 @@ export default function App() {
 
   // Modales de Cotización y Reemplazo
   const [pedidoCotizando, setPedidoCotizando] = useState(null);
+  const [cotizNivelServicio, setCotizNivelServicio] = useState(2);
+  const [cotizMargenGanancia, setCotizMargenGanancia] = useState(50);
   const [precioCotizadoManualTotal, setPrecioCotizadoManualTotal] = useState('');
-  const [descuentoMargenAplicado, setDescuentoMargenAplicado] = useState(null);
 
   const [pedidoReemplazando, setPedidoReemplazando] = useState(null);
   const [searchReemplazar, setSearchReemplazar] = useState('');
@@ -74,7 +75,7 @@ export default function App() {
     es_multicolor: false
   });
 
-  // Formulario Venta (Con Cantidad)
+  // Formulario Venta (Con Cantidad y Cobro)
   const [ventaForm, setVentaForm] = useState({
     pedido_id: null,
     pieza_id: '',
@@ -233,34 +234,32 @@ export default function App() {
     } else alert(error.message);
   };
 
-  // BOTÓN 1: COTIZAR PEDIDO (CON DESCUENTO EN % DE GANANCIA O MONTO MANUAL)
+  // BOTÓN 1: ABRIR MODAL DE COTIZAR CON MÓDULO IGUAL A PESTAÑA 2
   const abrirModalCotizarPedido = (pd) => {
     setPedidoCotizando(pd);
     const cant = pd.cantidad || 1;
+    const ns = pd.piezas?.nivel_servicio_estimativo || 2;
+    const mg = pd.piezas?.margen_ganancia_estimativo !== undefined ? pd.piezas.margen_ganancia_estimativo : 50;
+
+    setCotizNivelServicio(ns);
+    setCotizMargenGanancia(mg);
+
     if (pd.piezas) {
-      const uCalc = calcularCostosPiezaUnitario(
-        pd.piezas, 
-        pd.piezas.nivel_servicio_estimativo || 2, 
-        pd.piezas.margen_ganancia_estimativo || 50
-      );
-      const precioSugeridoTotal = uCalc.precioFinal * cant;
-      setPrecioCotizadoManualTotal(pd.precio_cotizado > 0 ? pd.precio_cotizado : precioSugeridoTotal);
+      const uCalc = calcularCostosPiezaUnitario(pd.piezas, ns, mg);
+      setPrecioCotizadoManualTotal(pd.precio_cotizado > 0 ? pd.precio_cotizado : uCalc.precioFinal * cant);
     } else {
       setPrecioCotizadoManualTotal(pd.precio_cotizado || '');
     }
-    setDescuentoMargenAplicado(null);
   };
 
-  const aplicarPorcentajeGananciaPedido = (pct) => {
-    if (!pedidoCotizando || !pedidoCotizando.piezas) return;
-    const cant = pedidoCotizando.cantidad || 1;
-    const uCalc = calcularCostosPiezaUnitario(
-      pedidoCotizando.piezas,
-      pedidoCotizando.piezas.nivel_servicio_estimativo || 2,
-      pct // Aplica el % de ganancia directamente
-    );
-    setDescuentoMargenAplicado(pct);
-    setPrecioCotizadoManualTotal(uCalc.precioFinal * cant);
+  const recalcularPrecioModalCotizar = (ns, mg) => {
+    setCotizNivelServicio(ns);
+    setCotizMargenGanancia(mg);
+    if (pedidoCotizando && pedidoCotizando.piezas) {
+      const cant = pedidoCotizando.cantidad || 1;
+      const uCalc = calcularCostosPiezaUnitario(pedidoCotizando.piezas, ns, mg);
+      setPrecioCotizadoManualTotal(uCalc.precioFinal * cant);
+    }
   };
 
   const confirmarCotizacionPedido = async () => {
@@ -278,24 +277,35 @@ export default function App() {
     } else alert(error.message);
   };
 
-  // BOTÓN 2: GESTIONAR APROBACIÓN
-  const cambiarEstadoAprobacion = async (pd, aprobado) => {
-    if (aprobado) {
+  // BOTÓN 2: GESTIONAR APROBACIÓN (CON OPCIÓN DE DES-APROBAR / PERMITIR REVERSIÓN)
+  const alternarEstadoAprobacion = async (pd) => {
+    if (pd.estado === 'Aprobado') {
+      // Revertir a Cotizado si hace clic de nuevo
+      const { error } = await supabase.from('pedidos').update({ estado: 'Cotizado' }).eq('id', pd.id);
+      if (!error) {
+        setSuccessMsg('Aprobación desmarcada. El pedido volvió a estado Cotizado.');
+        cargarDatos();
+        setTimeout(() => setSuccessMsg(''), 3000);
+      }
+    } else {
+      // Aprobar
       const { error } = await supabase.from('pedidos').update({ estado: 'Aprobado' }).eq('id', pd.id);
       if (!error) cargarDatos();
-    } else {
-      if (window.confirm(`¿Deseas descartar el pedido de ${pd.cliente}?`)) {
-        const { error } = await supabase.from('pedidos').delete().eq('id', pd.id);
-        if (!error) {
-          setSuccessMsg('Pedido descartado.');
-          cargarDatos();
-          setTimeout(() => setSuccessMsg(''), 3000);
-        }
+    }
+  };
+
+  const descartarPedido = async (pd) => {
+    if (window.confirm(`¿Deseas descartar el pedido de ${pd.cliente}?`)) {
+      const { error } = await supabase.from('pedidos').delete().eq('id', pd.id);
+      if (!error) {
+        setSuccessMsg('Pedido descartado.');
+        cargarDatos();
+        setTimeout(() => setSuccessMsg(''), 3000);
       }
     }
   };
 
-  // BOTÓN 3: REGISTRAR FABRICACIÓN Y TRANSFERIR A VENTAS
+  // BOTÓN 3: FABRICAR Y PASAR A VENTAS (ESPERANDO COBRO)
   const registrarFabricacionYTransferir = async (pd) => {
     if (!pd.pieza_id) {
       alert('Para fabricar el pedido, primero debes asignarle una pieza del catálogo existente.');
@@ -319,7 +329,7 @@ export default function App() {
     });
 
     setActiveTab('venta');
-    setSuccessMsg('¡Pedido fabricado! Finalizá la venta asignando quién vendió y fabricó.');
+    setSuccessMsg('¡Pedido fabricado! Asigná quién vendió y fabricó, y quedará pendiente de cobro.');
     setTimeout(() => setSuccessMsg(''), 4000);
   };
 
@@ -338,7 +348,7 @@ export default function App() {
     } else alert(error.message);
   };
 
-  // REGISTRO DE VENTA CON VARIACIÓN ABSORBIDA/LLEVADA POR EL VENDEDOR
+  // REGISTRO DE VENTA EN ESTADO PENDIENTE DE COBRO
   const registrarVenta = async (e) => {
     e.preventDefault();
     if (!ventaForm.pieza_id || !ventaForm.precio_cobrado) return;
@@ -365,6 +375,7 @@ export default function App() {
       costo_insumos: costoInsumosTotal,
       costo_servicio: costoServicioTotal,
       monto_ganancia_vendedor: gananciaVendedorFinal,
+      cobrado: false, // Inicia como PENDIENTE DE COBRO
       liquidado: false
     }]);
 
@@ -372,10 +383,19 @@ export default function App() {
       if (ventaForm.pedido_id) {
         await supabase.from('pedidos').delete().eq('id', ventaForm.pedido_id);
       }
-      setSuccessMsg('¡Venta registrada con éxito!');
+      setSuccessMsg('¡Venta registrada en espera de cobro!');
       setVentaForm({ pedido_id: null, pieza_id: '', cantidad: 1, vendedor: 'Papi', fabricante: 'NiVa', precio_cobrado: '' });
       cargarDatos();
-      setActiveTab('estadisticas');
+      setTimeout(() => setSuccessMsg(''), 3000);
+    } else alert(error.message);
+  };
+
+  // CONFIRMAR Y COBRAR VENTA (PASO FINAL HACIA ESTADÍSTICAS)
+  const marcarComoCobrado = async (ventaId) => {
+    const { error } = await supabase.from('ventas').update({ cobrado: true }).eq('id', ventaId);
+    if (!error) {
+      setSuccessMsg('¡Venta Cobrada! Los importes se sumaron al balance de Stats.');
+      cargarDatos();
       setTimeout(() => setSuccessMsg(''), 3000);
     } else alert(error.message);
   };
@@ -408,9 +428,10 @@ export default function App() {
     });
   };
 
+  // RESUMEN SOLO DE VENTAS QUE YA FUERON COBRADAS Y NO LIQUIDADAS
   const resumenStats = () => {
     const acumulados = { Papi: 0, Nadia: 0, Valen: 0, Nico: 0, NiVa: 0, totalVentas: 0 };
-    ventas.filter(v => !v.liquidado).forEach(v => {
+    ventas.filter(v => v.cobrado && !v.liquidado).forEach(v => {
       acumulados.totalVentas += parseFloat(v.precio_cobrado || 0);
       const vend = v.vendedor;
       if (acumulados[vend] !== undefined) acumulados[vend] += parseFloat(v.monto_ganancia_vendedor || 0);
@@ -424,7 +445,7 @@ export default function App() {
 
   const liquidarCaja = async () => {
     if (window.confirm('¿Deseas liquidar el período actual? Las cuentas acumuladas de todos volverán a cero.')) {
-      const { error } = await supabase.from('ventas').update({ liquidado: true }).eq('liquidado', false);
+      const { error } = await supabase.from('ventas').update({ liquidado: true }).eq('cobrado', true).eq('liquidado', false);
       if (!error) {
         setSuccessMsg('¡Caja distribuida y saldos reseteados a cero!');
         cargarDatos();
@@ -697,6 +718,7 @@ export default function App() {
 
   const stats = resumenStats();
   const pedidosProcesados = obtenerPedidosProcesados();
+  const ventasPendientesCobro = ventas.filter(v => !v.cobrado);
 
   if (!isUserAuthenticated) {
     return (
@@ -1022,7 +1044,7 @@ export default function App() {
                         </p>
                       )}
 
-                      {/* SECUENCIA DE 3 BOTONES DE ACCIÓN */}
+                      {/* SECUENCIA DE 3 BOTONES DE ACCIÓN (Aprobado permite des-marcar) */}
                       <div className="grid grid-cols-3 gap-2 pt-1 border-t border-slate-800">
                         
                         <button
@@ -1039,21 +1061,22 @@ export default function App() {
 
                         <div className="flex gap-1">
                           <button
-                            onClick={() => cambiarEstadoAprobacion(pd, true)}
+                            onClick={() => alternarEstadoAprobacion(pd)}
                             disabled={!esCotizado}
                             className={`flex-1 py-2 rounded-xl text-xs font-bold border transition flex items-center justify-center ${
                               esAprobado 
-                                ? 'bg-emerald-600 border-emerald-500 text-white' 
+                                ? 'bg-emerald-600 border-emerald-500 text-white hover:bg-emerald-700' 
                                 : !esCotizado 
                                   ? 'bg-slate-950 border-slate-800 text-slate-600 cursor-not-allowed'
                                   : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-emerald-950 hover:text-emerald-300'
                             }`}
+                            title={esAprobado ? "Clic para des-aprobar y volver a elegir" : "Aprobar pedido"}
                           >
-                            Aprobar
+                            {esAprobado ? '✓ Aprobado' : 'Aprobar'}
                           </button>
-                          {esCotizado && !esAprobado && (
+                          {!esAprobado && esCotizado && (
                             <button
-                              onClick={() => cambiarEstadoAprobacion(pd, false)}
+                              onClick={() => descartarPedido(pd)}
                               className="px-2 bg-rose-950 border border-rose-800 text-rose-300 rounded-xl text-xs font-bold hover:bg-rose-900"
                               title="Descartar Pedido"
                             >
@@ -1165,16 +1188,17 @@ export default function App() {
           </div>
         )}
 
-        {/* PESTAÑA: REGISTRAR VENTA */}
+        {/* PESTAÑA: REGISTRAR VENTA Y COBRO */}
         {activeTab === 'venta' && (
           <div className="space-y-4">
             <div>
               <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <ShoppingCart className="w-5 h-5 text-emerald-400" /> Registrar Nueva Venta
+                <ShoppingCart className="w-5 h-5 text-emerald-400" /> Registrar y Cobrar Venta
               </h2>
-              <p className="text-xs text-slate-400">Asigna vendedor y fabricante del encargo</p>
+              <p className="text-xs text-slate-400">Asigná vendedor y fabricante. El cobro final activa las métricas en Stats</p>
             </div>
 
+            {/* FORMULARIO DE REGISTRO */}
             <form onSubmit={registrarVenta} className="bg-slate-900 p-4.5 rounded-2xl border border-slate-800 space-y-4 shadow-lg">
               <div>
                 <label className="text-xs font-semibold text-slate-300 block mb-1">Pieza Vendida</label>
@@ -1284,11 +1308,53 @@ export default function App() {
 
               <button
                 type="submit"
-                className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold py-3 rounded-xl text-xs shadow-lg transition"
+                className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-3 rounded-xl text-xs transition border border-slate-700"
               >
-                Confirmar y Registrar Venta
+                + Guardar Venta (Pendiente de Cobro)
               </button>
             </form>
+
+            {/* SECCIÓN DE VENTAS PENDIENTES DE COBRO */}
+            <div className="space-y-3 pt-2">
+              <h3 className="text-xs font-bold text-amber-400 uppercase tracking-wider flex justify-between items-center">
+                <span>Ventas Pendientes de Cobro ({ventasPendientesCobro.length})</span>
+                <span className="text-[10px] text-slate-500 font-normal">Paso previo a Stats</span>
+              </h3>
+
+              {ventasPendientesCobro.length === 0 ? (
+                <div className="text-center py-6 text-slate-500 text-xs bg-slate-900 border border-slate-800 rounded-2xl">
+                  No hay ventas pendientes de cobro.
+                </div>
+              ) : (
+                ventasPendientesCobro.map(v => (
+                  <div key={v.id} className="bg-slate-900 border border-amber-500/30 p-3.5 rounded-2xl space-y-2.5 shadow-md">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <span className="font-bold text-white text-xs">{v.piezas?.titulo || 'Pieza'} ({v.cantidad || 1} u.)</span>
+                        <div className="flex space-x-2 text-[10px] text-slate-400 mt-0.5">
+                          <span>Vendió: <strong className="text-slate-200">{v.vendedor}</strong></span>
+                          <span>•</span>
+                          <span>Fabricó: <strong className="text-slate-200">{v.fabricante || 'NiVa'}</strong></span>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="font-mono font-extrabold text-emerald-400 text-sm block">${v.precio_cobrado}</span>
+                        <span className="text-[10px] text-amber-400 font-semibold">Pendiente</span>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => marcarComoCobrado(v.id)}
+                      className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold py-2.5 rounded-xl text-xs shadow-md transition flex items-center justify-center space-x-1.5"
+                    >
+                      <DollarSign className="w-4 h-4" />
+                      <span>Confirmar y Cobrar</span>
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+
           </div>
         )}
 
@@ -1300,7 +1366,7 @@ export default function App() {
                 <h2 className="text-lg font-bold text-white flex items-center gap-2">
                   <BarChart2 className="w-5 h-5 text-emerald-400" /> Balance y Reparto de Caja
                 </h2>
-                <p className="text-xs text-slate-400">Acumulados pendientes de pago en cuenta común</p>
+                <p className="text-xs text-slate-400">Solo computa ventas efectivamente cobradas</p>
               </div>
               <button
                 onClick={liquidarCaja}
@@ -1334,11 +1400,11 @@ export default function App() {
             </div>
 
             <div className="space-y-2">
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Ventas Pendientes de Liquidar</h3>
-              {ventas.filter(v => !v.liquidado).length === 0 ? (
-                <div className="text-center py-8 text-slate-500 text-xs">No hay ventas pendientes de liquidar.</div>
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Historial de Ventas Cobradas (Período Actual)</h3>
+              {ventas.filter(v => v.cobrado && !v.liquidado).length === 0 ? (
+                <div className="text-center py-8 text-slate-500 text-xs">No hay ventas cobradas pendientes de liquidar.</div>
               ) : (
-                ventas.filter(v => !v.liquidado).map((v) => (
+                ventas.filter(v => v.cobrado && !v.liquidado).map((v) => (
                   <div key={v.id} className="bg-slate-900 border border-slate-800 p-3 rounded-xl flex items-center justify-between text-xs">
                     <div>
                       <span className="font-bold text-white">{v.piezas?.titulo || 'Pieza'} ({v.cantidad || 1} u.)</span>
@@ -1359,7 +1425,7 @@ export default function App() {
           </div>
         )}
 
-        {/* MODAL COTIZAR PEDIDO (CON SELECTOR DE % GANANCIA IGUAL A COTIZAR O MANUAL) */}
+        {/* MODAL COTIZAR PEDIDO (CON MÓDULO COMPLETO IGUAL A PESTAÑA COTIZAR) */}
         {pedidoCotizando && (
           <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
             <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl">
@@ -1374,48 +1440,67 @@ export default function App() {
               </div>
 
               {pedidoCotizando.piezas && (
-                <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-2.5 text-xs">
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Pieza:</span>
-                    <span className="font-bold text-white">{pedidoCotizando.piezas.titulo}</span>
-                  </div>
+                <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
+                  <h4 className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                    <Calculator className="w-4 h-4 text-emerald-400" /> Simular Cotización Unitario
+                  </h4>
 
-                  <div>
-                    <label className="text-[11px] text-slate-400 block mb-1">Aplicar % de Ganancia Directo:</label>
-                    <div className="flex gap-1.5">
-                      {[0, 10, 20, 30, 40, 50, 70, 100].map(pct => (
-                        <button
-                          key={pct}
-                          type="button"
-                          onClick={() => aplicarPorcentajeGananciaPedido(pct)}
-                          className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold border font-mono transition ${
-                            descuentoMargenAplicado === pct 
-                              ? 'bg-emerald-600 border-emerald-500 text-white' 
-                              : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
-                          }`}
-                        >
-                          {pct}%
-                        </button>
-                      ))}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[11px] text-slate-400 block mb-1">Nivel de Servicio</label>
+                      <select
+                        value={cotizNivelServicio}
+                        onChange={(e) => recalcularPrecioModalCotizar(parseInt(e.target.value, 10), cotizMargenGanancia)}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-xs text-white"
+                      >
+                        <option value={1}>1 - Básico (${config?.costo_servicio_basico || 1000}/h)</option>
+                        <option value={2}>2 - Estándar (${config?.costo_servicio_estandar || 1500}/h)</option>
+                        <option value={3}>3 - Express (${config?.costo_servicio_premium || 2500}/h)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[11px] text-slate-400 block mb-1">Margen Ganancia</label>
+                      <select
+                        value={cotizMargenGanancia}
+                        onChange={(e) => recalcularPrecioModalCotizar(cotizNivelServicio, parseFloat(e.target.value))}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-xs text-white font-mono text-center"
+                      >
+                        {[0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map((m) => (
+                          <option key={m} value={m}>{m}%</option>
+                        ))}
+                      </select>
                     </div>
                   </div>
+
+                  {(() => {
+                    const u = calcularCostosPiezaUnitario(pedidoCotizando.piezas, cotizNivelServicio, cotizMargenGanancia);
+                    const c = pedidoCotizando.cantidad || 1;
+                    return (
+                      <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs">
+                        <div>
+                          <span className="text-[10px] text-slate-500 block">Unitario Sugerido: ${u.precioFinal}</span>
+                          <span className="text-xs font-bold text-slate-300">Total Sugerido ({c} u.)</span>
+                        </div>
+                        <span className="text-xl font-extrabold text-emerald-400 font-mono">
+                          ${(u.precioFinal * c).toLocaleString()}
+                        </span>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 
               <div>
-                <label className="text-xs font-semibold text-slate-300 block mb-1">Monto Total Cotizado / Manual ($)</label>
+                <label className="text-xs font-semibold text-slate-300 block mb-1">Monto Total Final Cotizado ($)</label>
                 <input
                   type="number"
                   value={precioCotizadoManualTotal}
-                  onChange={(e) => {
-                    setPrecioCotizadoManualTotal(e.target.value);
-                    setDescuentoMargenAplicado(null);
-                  }}
+                  onChange={(e) => setPrecioCotizadoManualTotal(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-lg font-mono font-bold text-emerald-400 text-center"
                 />
                 {precioCotizadoManualTotal && (pedidoCotizando.cantidad || 1) > 1 && (
                   <span className="text-[10px] text-slate-400 font-mono text-center block mt-1">
-                    Dividido en {pedidoCotizando.cantidad} u. = <strong className="text-emerald-400">${Math.round(precioCotizadoManualTotal / pedidoCotizando.cantidad).toLocaleString()}</strong> / unidad
+                    Equivalente a <strong className="text-emerald-400">${Math.round(precioCotizadoManualTotal / (pedidoCotizando.cantidad || 1)).toLocaleString()}</strong> / unidad
                   </span>
                 )}
               </div>
