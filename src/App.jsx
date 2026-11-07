@@ -278,7 +278,7 @@ export default function App() {
     } else alert(error.message);
   };
 
-  // GESTIONAR APROBACIÓN (PERMITE DES-APROBAR)
+  // GESTIONAR APROBACIÓN
   const alternarEstadoAprobacion = async (pd) => {
     if (pd.estado === 'Aprobado') {
       const { error } = await supabase.from('pedidos').update({ estado: 'Cotizado' }).eq('id', pd.id);
@@ -304,7 +304,7 @@ export default function App() {
     }
   };
 
-  // FABRICAR Y PASAR A VENTAS (TRANSPASA EL NOMBRE DEL CLIENTE AUTOMÁTICAMENTE)
+  // FABRICAR Y PASAR DIRECTO A PENDIENTES DE COBRO (CON EL CLIENTE CORRECTO)
   const registrarFabricacionYTransferir = async (pd) => {
     if (!pd.pieza_id) {
       alert('Para fabricar el pedido, primero debes asignarle una pieza del catálogo existente.');
@@ -312,25 +312,40 @@ export default function App() {
       return;
     }
 
-    const { error: errPedido } = await supabase.from('pedidos').update({ estado: 'Fabricado' }).eq('id', pd.id);
-    if (errPedido) {
-      alert(errPedido.message);
-      return;
-    }
+    const piezaSel = piezas.find(p => p.id === pd.pieza_id);
+    const cant = pd.cantidad || 1;
+    const precioTotalCobrado = pd.precio_cotizado || 0;
 
-    setVentaForm({
-      pedido_id: pd.id,
-      cliente: pd.cliente || '',
+    const uCalc = calcularCostosPiezaUnitario(piezaSel, piezaSel.nivel_servicio_estimativo || 2, piezaSel.margen_ganancia_estimativo || 50);
+    const costoInsumosTotal = (uCalc.costoMaterial + uCalc.costoEnergia + uCalc.costoAmortizacion) * cant;
+    const costoServicioTotal = uCalc.costoServicio * cant;
+    const costoBaseTotal = uCalc.subtotal * cant;
+    const gananciaVendedorFinal = Math.max(0, precioTotalCobrado - costoBaseTotal);
+
+    const payloadVenta = {
       pieza_id: pd.pieza_id,
-      cantidad: pd.cantidad || 1,
+      cliente: pd.cliente ? pd.cliente.trim() : 'Venta Mostrador',
+      cantidad: cant,
       vendedor: pd.recibido_por || 'Papi',
       fabricante: 'NiVa',
-      precio_cobrado: pd.precio_cotizado
-    });
+      precio_cobrado: precioTotalCobrado,
+      precio_unitario: cant > 0 ? precioTotalCobrado / cant : precioTotalCobrado,
+      costo_insumos: costoInsumosTotal,
+      costo_servicio: costoServicioTotal,
+      monto_ganancia_vendedor: gananciaVendedorFinal,
+      cobrado: false,
+      liquidado: false
+    };
 
-    setActiveTab('venta');
-    setSuccessMsg(`¡Pedido de ${pd.cliente} fabricado! Quedó listo en la pestaña Ventas.`);
-    setTimeout(() => setSuccessMsg(''), 4000);
+    const { error: errVenta } = await supabase.from('ventas').insert([payloadVenta]);
+
+    if (!errVenta) {
+      await supabase.from('pedidos').delete().eq('id', pd.id);
+      setSuccessMsg(`¡Pedido de ${pd.cliente} fabricado! Quedó listo en Ventas Pendientes de Cobro.`);
+      cargarDatos();
+      setActiveTab('venta');
+      setTimeout(() => setSuccessMsg(''), 4000);
+    } else alert(errVenta.message);
   };
 
   const reemplazarDiseñoNuevo = async (piezaSel) => {
@@ -348,7 +363,7 @@ export default function App() {
     } else alert(error.message);
   };
 
-  // REGISTRO DE VENTA EN ESTADO PENDIENTE DE COBRO
+  // REGISTRO DE VENTA MANUAL EN ESTADO PENDIENTE DE COBRO
   const registrarVenta = async (e) => {
     e.preventDefault();
     if (!ventaForm.pieza_id || !ventaForm.precio_cobrado) return;
@@ -383,9 +398,6 @@ export default function App() {
     const { error } = await supabase.from('ventas').insert([payload]);
 
     if (!error) {
-      if (ventaForm.pedido_id) {
-        await supabase.from('pedidos').delete().eq('id', ventaForm.pedido_id);
-      }
       setSuccessMsg('¡Venta registrada en espera de cobro!');
       setVentaForm({ pedido_id: null, cliente: '', pieza_id: '', cantidad: 1, vendedor: 'Papi', fabricante: 'NiVa', precio_cobrado: '' });
       cargarDatos();
@@ -1328,7 +1340,7 @@ export default function App() {
               </button>
             </form>
 
-            {/* TARJETAS DE VENTAS PENDIENTES DE COBRO */}
+            {/* FICHA COMPACTA DE VENTAS PENDIENTES DE COBRO */}
             <div className="space-y-3 pt-2">
               <h3 className="text-xs font-bold text-amber-400 uppercase tracking-wider flex justify-between items-center">
                 <span>Ventas Pendientes de Cobro ({ventasPendientesCobro.length})</span>
@@ -1341,40 +1353,36 @@ export default function App() {
                 </div>
               ) : (
                 ventasPendientesCobro.map(v => (
-                  <div key={v.id} className="bg-slate-900 border border-amber-500/30 p-4 rounded-2xl space-y-3 shadow-md">
+                  <div key={v.id} className="bg-slate-900 border border-amber-500/30 p-3.5 rounded-2xl space-y-2.5 shadow-md">
                     
-                    {/* FILA SUPERIOR: CLIENTE ARRIBA A LA IZQUIERDA Y MONTO A LA DERECHA */}
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <span className="text-[11px] text-slate-400 block font-medium">👤 Cliente:</span>
-                        <span className="text-sm font-bold text-amber-300 block">
-                          {v.cliente && v.cliente !== 'Venta Directa' ? v.cliente : 'Venta Mostrador'}
-                        </span>
-                      </div>
-                      <div className="text-right">
-                        <span className="font-mono font-extrabold text-emerald-400 text-base block">${v.precio_cobrado}</span>
-                        <span className="text-[10px] text-amber-400 font-semibold uppercase tracking-wider">Pendiente</span>
+                    {/* ENCABEZADO: CLIENTE ARRIBA A LA IZQUIERDA | MONTO A LA DERECHA */}
+                    <div className="flex justify-between items-baseline">
+                      <span className="text-sm font-extrabold text-amber-400 truncate">
+                        {v.cliente || 'Venta Mostrador'}
+                      </span>
+                      <div className="text-right flex-shrink-0">
+                        <span className="font-mono font-black text-emerald-400 text-base">${v.precio_cobrado}</span>
                       </div>
                     </div>
 
-                    {/* FILA MEDIA: PIEZA FABRICADA Y CANTIDAD */}
-                    <div className="flex items-center space-x-2 bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                    {/* PIEZA FABRICADA Y CANTIDAD */}
+                    <div className="flex items-center space-x-2">
                       <span className="font-bold text-white text-xs">{v.piezas?.titulo || 'Pieza'}</span>
-                      <span className="bg-emerald-950 text-emerald-400 border border-emerald-800 text-[10px] px-2 py-0.5 rounded font-mono font-bold">
+                      <span className="bg-emerald-950 text-emerald-400 border border-emerald-800 text-[10px] px-1.5 py-0.2 rounded font-mono font-bold">
                         {v.cantidad || 1} u.
                       </span>
                     </div>
 
-                    {/* FILA INFERIOR: VENDIÓ Y FABRICÓ */}
-                    <div className="flex justify-between text-xs text-slate-400 pt-0.5 px-0.5">
+                    {/* VENDIÓ Y FABRICÓ */}
+                    <div className="flex justify-between text-xs text-slate-400 pt-0.5">
                       <span>Vendió: <strong className="text-slate-200">{v.vendedor}</strong></span>
                       <span>Fabricó: <strong className="text-slate-200">{v.fabricante || 'NiVa'}</strong></span>
                     </div>
 
-                    {/* BOTÓN CONFIRMAR Y COBRAR */}
+                    {/* BOTÓN COBRAR COMPACTO */}
                     <button
                       onClick={() => marcarComoCobrado(v.id)}
-                      className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold py-3 rounded-xl text-xs shadow-md transition flex items-center justify-center space-x-1.5"
+                      className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl text-xs shadow-md transition flex items-center justify-center space-x-1.5"
                     >
                       <DollarSign className="w-4 h-4" />
                       <span>Confirmar y Cobrar</span>
@@ -1436,7 +1444,7 @@ export default function App() {
                 ventas.filter(v => v.cobrado && !v.liquidado).map((v) => (
                   <div key={v.id} className="bg-slate-900 border border-slate-800 p-3 rounded-xl flex items-center justify-between text-xs">
                     <div>
-                      <span className="font-bold text-amber-300 block">👤 {v.cliente}</span>
+                      <span className="font-bold text-amber-300 block">{v.cliente}</span>
                       <span className="text-slate-200">{v.piezas?.titulo || 'Pieza'} ({v.cantidad || 1} u.)</span>
                       <div className="flex space-x-2 text-[10px] text-slate-400 mt-0.5">
                         <span>Vendió: {v.vendedor}</span>
@@ -2049,7 +2057,7 @@ export default function App() {
                     <input
                       type="text"
                       defaultValue={c.prefijo}
-                      onBlur={(e) => actualizarCategoria(c.id, { prefijo: e.target.value.toUpperCase() })}
+                      onBlur={(e) => actualizarCategoria(c.id, { prefijo: c.prefijo.toUpperCase() })}
                       className="w-16 bg-emerald-950 text-emerald-400 text-center font-mono font-bold text-xs py-1 rounded border border-emerald-900 focus:outline-none"
                     />
                     <button
