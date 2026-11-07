@@ -75,9 +75,10 @@ export default function App() {
     es_multicolor: false
   });
 
-  // Formulario Venta (Con Cantidad y Cobro)
+  // Formulario Venta (Con Cliente, Cantidad y Cobro)
   const [ventaForm, setVentaForm] = useState({
     pedido_id: null,
+    cliente: '',
     pieza_id: '',
     cantidad: 1,
     vendedor: 'Papi',
@@ -234,7 +235,7 @@ export default function App() {
     } else alert(error.message);
   };
 
-  // BOTÓN 1: ABRIR MODAL DE COTIZAR CON MÓDULO IGUAL A PESTAÑA 2
+  // BOTÓN 1: ABRIR MODAL DE COTIZAR CON MÓDULO INTEGRADO
   const abrirModalCotizarPedido = (pd) => {
     setPedidoCotizando(pd);
     const cant = pd.cantidad || 1;
@@ -277,10 +278,9 @@ export default function App() {
     } else alert(error.message);
   };
 
-  // BOTÓN 2: GESTIONAR APROBACIÓN (CON OPCIÓN DE DES-APROBAR / PERMITIR REVERSIÓN)
+  // BOTÓN 2: GESTIONAR APROBACIÓN (PERMITE DES-APROBAR)
   const alternarEstadoAprobacion = async (pd) => {
     if (pd.estado === 'Aprobado') {
-      // Revertir a Cotizado si hace clic de nuevo
       const { error } = await supabase.from('pedidos').update({ estado: 'Cotizado' }).eq('id', pd.id);
       if (!error) {
         setSuccessMsg('Aprobación desmarcada. El pedido volvió a estado Cotizado.');
@@ -288,7 +288,6 @@ export default function App() {
         setTimeout(() => setSuccessMsg(''), 3000);
       }
     } else {
-      // Aprobar
       const { error } = await supabase.from('pedidos').update({ estado: 'Aprobado' }).eq('id', pd.id);
       if (!error) cargarDatos();
     }
@@ -305,7 +304,7 @@ export default function App() {
     }
   };
 
-  // BOTÓN 3: FABRICAR Y PASAR A VENTAS (ESPERANDO COBRO)
+  // BOTÓN 3: FABRICAR Y PASAR A VENTAS (TRANSPASA EL NOMBRE DEL CLIENTE)
   const registrarFabricacionYTransferir = async (pd) => {
     if (!pd.pieza_id) {
       alert('Para fabricar el pedido, primero debes asignarle una pieza del catálogo existente.');
@@ -321,6 +320,7 @@ export default function App() {
 
     setVentaForm({
       pedido_id: pd.id,
+      cliente: pd.cliente,
       pieza_id: pd.pieza_id,
       cantidad: pd.cantidad || 1,
       vendedor: pd.recibido_por || 'Papi',
@@ -365,8 +365,9 @@ export default function App() {
 
     const gananciaVendedorFinal = Math.max(0, precioTotalCobrado - costoBaseTotal);
 
-    const { error } = await supabase.from('ventas').insert([{
+    const payload = {
       pieza_id: ventaForm.pieza_id,
+      cliente: ventaForm.cliente || 'Venta Mostrador',
       cantidad: cant,
       vendedor: ventaForm.vendedor,
       fabricante: ventaForm.fabricante,
@@ -375,16 +376,18 @@ export default function App() {
       costo_insumos: costoInsumosTotal,
       costo_servicio: costoServicioTotal,
       monto_ganancia_vendedor: gananciaVendedorFinal,
-      cobrado: false, // Inicia como PENDIENTE DE COBRO
+      cobrado: false,
       liquidado: false
-    }]);
+    };
+
+    const { error } = await supabase.from('ventas').insert([payload]);
 
     if (!error) {
       if (ventaForm.pedido_id) {
         await supabase.from('pedidos').delete().eq('id', ventaForm.pedido_id);
       }
       setSuccessMsg('¡Venta registrada en espera de cobro!');
-      setVentaForm({ pedido_id: null, pieza_id: '', cantidad: 1, vendedor: 'Papi', fabricante: 'NiVa', precio_cobrado: '' });
+      setVentaForm({ pedido_id: null, cliente: '', pieza_id: '', cantidad: 1, vendedor: 'Papi', fabricante: 'NiVa', precio_cobrado: '' });
       cargarDatos();
       setTimeout(() => setSuccessMsg(''), 3000);
     } else alert(error.message);
@@ -428,7 +431,6 @@ export default function App() {
     });
   };
 
-  // RESUMEN SOLO DE VENTAS QUE YA FUERON COBRADAS Y NO LIQUIDADAS
   const resumenStats = () => {
     const acumulados = { Papi: 0, Nadia: 0, Valen: 0, Nico: 0, NiVa: 0, totalVentas: 0 };
     ventas.filter(v => v.cobrado && !v.liquidado).forEach(v => {
@@ -1044,7 +1046,7 @@ export default function App() {
                         </p>
                       )}
 
-                      {/* SECUENCIA DE 3 BOTONES DE ACCIÓN (Aprobado permite des-marcar) */}
+                      {/* SECUENCIA DE 3 BOTONES DE ACCIÓN */}
                       <div className="grid grid-cols-3 gap-2 pt-1 border-t border-slate-800">
                         
                         <button
@@ -1198,8 +1200,20 @@ export default function App() {
               <p className="text-xs text-slate-400">Asigná vendedor y fabricante. El cobro final activa las métricas en Stats</p>
             </div>
 
-            {/* FORMULARIO DE REGISTRO */}
+            {/* FORMULARIO DE REGISTRO DE VENTA */}
             <form onSubmit={registrarVenta} className="bg-slate-900 p-4.5 rounded-2xl border border-slate-800 space-y-4 shadow-lg">
+              
+              <div>
+                <label className="text-xs font-semibold text-slate-300 block mb-1">Nombre del Cliente *</label>
+                <input
+                  type="text"
+                  placeholder="Ej: Marcelo Michelini / Cliente de mostrador"
+                  value={ventaForm.cliente}
+                  onChange={(e) => setVentaForm({ ...ventaForm, cliente: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
               <div>
                 <label className="text-xs font-semibold text-slate-300 block mb-1">Pieza Vendida</label>
                 <select
@@ -1314,7 +1328,7 @@ export default function App() {
               </button>
             </form>
 
-            {/* SECCIÓN DE VENTAS PENDIENTES DE COBRO */}
+            {/* SECCIÓN DE VENTAS PENDIENTES DE COBRO CON NOMBRE DE CLIENTE */}
             <div className="space-y-3 pt-2">
               <h3 className="text-xs font-bold text-amber-400 uppercase tracking-wider flex justify-between items-center">
                 <span>Ventas Pendientes de Cobro ({ventasPendientesCobro.length})</span>
@@ -1328,19 +1342,26 @@ export default function App() {
               ) : (
                 ventasPendientesCobro.map(v => (
                   <div key={v.id} className="bg-slate-900 border border-amber-500/30 p-3.5 rounded-2xl space-y-2.5 shadow-md">
-                    <div className="flex justify-between items-start">
+                    
+                    <div className="flex justify-between items-start border-b border-slate-800 pb-2">
                       <div>
-                        <span className="font-bold text-white text-xs">{v.piezas?.titulo || 'Pieza'} ({v.cantidad || 1} u.)</span>
-                        <div className="flex space-x-2 text-[10px] text-slate-400 mt-0.5">
-                          <span>Vendió: <strong className="text-slate-200">{v.vendedor}</strong></span>
-                          <span>•</span>
-                          <span>Fabricó: <strong className="text-slate-200">{v.fabricante || 'NiVa'}</strong></span>
+                        <span className="text-xs text-amber-300 font-bold block">👤 {v.cliente || 'Venta Directa'}</span>
+                        <div className="flex items-center space-x-2 mt-0.5">
+                          <span className="font-bold text-white text-xs">{v.piezas?.titulo || 'Pieza'}</span>
+                          <span className="bg-emerald-950 text-emerald-400 border border-emerald-800 text-[10px] px-1.5 py-0.2 rounded font-mono">
+                            {v.cantidad || 1} u.
+                          </span>
                         </div>
                       </div>
                       <div className="text-right">
                         <span className="font-mono font-extrabold text-emerald-400 text-sm block">${v.precio_cobrado}</span>
                         <span className="text-[10px] text-amber-400 font-semibold">Pendiente</span>
                       </div>
+                    </div>
+
+                    <div className="flex justify-between text-[11px] text-slate-400 pt-0.5">
+                      <span>Vendió / Recibió: <strong className="text-slate-200">{v.vendedor}</strong></span>
+                      <span>Fabricó: <strong className="text-slate-200">{v.fabricante || 'NiVa'}</strong></span>
                     </div>
 
                     <button
@@ -1407,8 +1428,9 @@ export default function App() {
                 ventas.filter(v => v.cobrado && !v.liquidado).map((v) => (
                   <div key={v.id} className="bg-slate-900 border border-slate-800 p-3 rounded-xl flex items-center justify-between text-xs">
                     <div>
-                      <span className="font-bold text-white">{v.piezas?.titulo || 'Pieza'} ({v.cantidad || 1} u.)</span>
-                      <div className="flex space-x-2 text-[10px] text-slate-400">
+                      <span className="font-bold text-amber-300 block">👤 {v.cliente}</span>
+                      <span className="text-slate-200">{v.piezas?.titulo || 'Pieza'} ({v.cantidad || 1} u.)</span>
+                      <div className="flex space-x-2 text-[10px] text-slate-400 mt-0.5">
                         <span>Vendió: {v.vendedor}</span>
                         <span>•</span>
                         <span>Fabricó: {v.fabricante || 'NiVa'}</span>
@@ -1425,7 +1447,7 @@ export default function App() {
           </div>
         )}
 
-        {/* MODAL COTIZAR PEDIDO (CON MÓDULO COMPLETO IGUAL A PESTAÑA COTIZAR) */}
+        {/* MODAL COTIZAR PEDIDO (CON MÓDULO INTEGRADO COMPLETO) */}
         {pedidoCotizando && (
           <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
             <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl">
