@@ -393,11 +393,6 @@ export default function App() {
     } else alert(error.message);
   };
 
-  // MODIFICAR NOMBRE DE CLIENTE DIRECTO EN VENTA PENDIENTE
-  const actualizarClienteVenta = async (ventaId, nuevoCliente) => {
-    await supabase.from('ventas').update({ cliente: nuevoCliente.trim() || 'Venta Mostrador' }).eq('id', ventaId);
-  };
-
   // CONFIRMAR Y COBRAR VENTA (PASO FINAL HACIA ESTADÍSTICAS)
   const marcarComoCobrado = async (ventaId) => {
     const { error } = await supabase.from('ventas').update({ cobrado: true }).eq('id', ventaId);
@@ -1205,11 +1200,11 @@ export default function App() {
               <p className="text-xs text-slate-400">Asigná vendedor y fabricante. El cobro final activa las métricas en Stats</p>
             </div>
 
-            {/* FORMULARIO DE REGISTRO DE VENTA */}
+            {/* FORMULARIO DE REGISTRO DE VENTA MANUAL */}
             <form onSubmit={registrarVenta} className="bg-slate-900 p-4.5 rounded-2xl border border-slate-800 space-y-4 shadow-lg">
               
               <div>
-                <label className="text-xs font-semibold text-slate-300 block mb-1">Nombre del Cliente / Para Quién Es *</label>
+                <label className="text-xs font-semibold text-slate-300 block mb-1">Nombre del Cliente *</label>
                 <input
                   type="text"
                   placeholder="Ej: Marcelo Michelini"
@@ -1333,7 +1328,7 @@ export default function App() {
               </button>
             </form>
 
-            {/* SECCIÓN DE VENTAS PENDIENTES DE COBRO CON NOMBRE DE CLIENTE EDITABLE */}
+            {/* TARJETAS DE VENTAS PENDIENTES DE COBRO */}
             <div className="space-y-3 pt-2">
               <h3 className="text-xs font-bold text-amber-400 uppercase tracking-wider flex justify-between items-center">
                 <span>Ventas Pendientes de Cobro ({ventasPendientesCobro.length})</span>
@@ -1346,39 +1341,40 @@ export default function App() {
                 </div>
               ) : (
                 ventasPendientesCobro.map(v => (
-                  <div key={v.id} className="bg-slate-900 border border-amber-500/30 p-3.5 rounded-2xl space-y-2.5 shadow-md">
+                  <div key={v.id} className="bg-slate-900 border border-amber-500/30 p-4 rounded-2xl space-y-3 shadow-md">
                     
-                    <div className="flex justify-between items-start border-b border-slate-800 pb-2">
-                      <div className="flex-1 pr-2">
-                        <label className="text-[10px] text-slate-400 block mb-0.5">👤 Cliente Encargo:</label>
-                        <input
-                          type="text"
-                          defaultValue={v.cliente && v.cliente !== 'Venta Directa' ? v.cliente : ''}
-                          placeholder="Nombre del Cliente..."
-                          onBlur={(e) => actualizarClienteVenta(v.id, e.target.value)}
-                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-xs font-bold text-amber-300 focus:outline-none focus:border-amber-500"
-                        />
-                        <div className="flex items-center space-x-2 mt-1.5">
-                          <span className="font-bold text-white text-xs">{v.piezas?.titulo || 'Pieza'}</span>
-                          <span className="bg-emerald-950 text-emerald-400 border border-emerald-800 text-[10px] px-1.5 py-0.2 rounded font-mono">
-                            {v.cantidad || 1} u.
-                          </span>
-                        </div>
+                    {/* FILA SUPERIOR: CLIENTE ARRIBA A LA IZQUIERDA Y MONTO A LA DERECHA */}
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <span className="text-[11px] text-slate-400 block font-medium">👤 Cliente:</span>
+                        <span className="text-sm font-bold text-amber-300 block">
+                          {v.cliente && v.cliente !== 'Venta Directa' ? v.cliente : 'Venta Mostrador'}
+                        </span>
                       </div>
                       <div className="text-right">
-                        <span className="font-mono font-extrabold text-emerald-400 text-sm block">${v.precio_cobrado}</span>
-                        <span className="text-[10px] text-amber-400 font-semibold">Pendiente</span>
+                        <span className="font-mono font-extrabold text-emerald-400 text-base block">${v.precio_cobrado}</span>
+                        <span className="text-[10px] text-amber-400 font-semibold uppercase tracking-wider">Pendiente</span>
                       </div>
                     </div>
 
-                    <div className="flex justify-between text-[11px] text-slate-400 pt-0.5">
+                    {/* FILA MEDIA: PIEZA FABRICADA Y CANTIDAD */}
+                    <div className="flex items-center space-x-2 bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                      <span className="font-bold text-white text-xs">{v.piezas?.titulo || 'Pieza'}</span>
+                      <span className="bg-emerald-950 text-emerald-400 border border-emerald-800 text-[10px] px-2 py-0.5 rounded font-mono font-bold">
+                        {v.cantidad || 1} u.
+                      </span>
+                    </div>
+
+                    {/* FILA INFERIOR: VENDIÓ Y FABRICÓ */}
+                    <div className="flex justify-between text-xs text-slate-400 pt-0.5 px-0.5">
                       <span>Vendió: <strong className="text-slate-200">{v.vendedor}</strong></span>
                       <span>Fabricó: <strong className="text-slate-200">{v.fabricante || 'NiVa'}</strong></span>
                     </div>
 
+                    {/* BOTÓN CONFIRMAR Y COBRAR */}
                     <button
                       onClick={() => marcarComoCobrado(v.id)}
-                      className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold py-2.5 rounded-xl text-xs shadow-md transition flex items-center justify-center space-x-1.5"
+                      className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold py-3 rounded-xl text-xs shadow-md transition flex items-center justify-center space-x-1.5"
                     >
                       <DollarSign className="w-4 h-4" />
                       <span>Confirmar y Cobrar</span>
@@ -1459,7 +1455,7 @@ export default function App() {
           </div>
         )}
 
-        {/* MODAL COTIZAR PEDIDO (CON MÓDULO INTEGRADO COMPLETO) */}
+        {/* MODAL COTIZAR PEDIDO */}
         {pedidoCotizando && (
           <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
             <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl">
