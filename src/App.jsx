@@ -35,7 +35,7 @@ export default function App() {
   const [simMargenGanancia, setSimMargenGanancia] = useState(50);
   const [savingEstimativo, setSavingEstimativo] = useState(false);
 
-  // Formulario Cargar Pedido (Con Cantidad)
+  // Formulario Cargar Pedido
   const [pedidoForm, setPedidoForm] = useState({
     cliente: '',
     cantidad: 1,
@@ -235,7 +235,7 @@ export default function App() {
     } else alert(error.message);
   };
 
-  // BOTÓN 1: ABRIR MODAL DE COTIZAR CON MÓDULO INTEGRADO
+  // ABRIR MODAL DE COTIZAR CON MÓDULO INTEGRADO
   const abrirModalCotizarPedido = (pd) => {
     setPedidoCotizando(pd);
     const cant = pd.cantidad || 1;
@@ -278,7 +278,7 @@ export default function App() {
     } else alert(error.message);
   };
 
-  // BOTÓN 2: GESTIONAR APROBACIÓN (PERMITE DES-APROBAR)
+  // GESTIONAR APROBACIÓN (PERMITE DES-APROBAR)
   const alternarEstadoAprobacion = async (pd) => {
     if (pd.estado === 'Aprobado') {
       const { error } = await supabase.from('pedidos').update({ estado: 'Cotizado' }).eq('id', pd.id);
@@ -304,7 +304,7 @@ export default function App() {
     }
   };
 
-  // BOTÓN 3: FABRICAR Y PASAR A VENTAS (TRANSPASA EL NOMBRE DEL CLIENTE)
+  // FABRICAR Y PASAR A VENTAS (TRANSPASA EL NOMBRE DEL CLIENTE AUTOMÁTICAMENTE)
   const registrarFabricacionYTransferir = async (pd) => {
     if (!pd.pieza_id) {
       alert('Para fabricar el pedido, primero debes asignarle una pieza del catálogo existente.');
@@ -320,7 +320,7 @@ export default function App() {
 
     setVentaForm({
       pedido_id: pd.id,
-      cliente: pd.cliente,
+      cliente: pd.cliente || '',
       pieza_id: pd.pieza_id,
       cantidad: pd.cantidad || 1,
       vendedor: pd.recibido_por || 'Papi',
@@ -329,7 +329,7 @@ export default function App() {
     });
 
     setActiveTab('venta');
-    setSuccessMsg('¡Pedido fabricado! Asigná quién vendió y fabricó, y quedará pendiente de cobro.');
+    setSuccessMsg(`¡Pedido de ${pd.cliente} fabricado! Quedó listo en la pestaña Ventas.`);
     setTimeout(() => setSuccessMsg(''), 4000);
   };
 
@@ -367,7 +367,7 @@ export default function App() {
 
     const payload = {
       pieza_id: ventaForm.pieza_id,
-      cliente: ventaForm.cliente || 'Venta Mostrador',
+      cliente: ventaForm.cliente.trim() || 'Venta Mostrador',
       cantidad: cant,
       vendedor: ventaForm.vendedor,
       fabricante: ventaForm.fabricante,
@@ -393,6 +393,11 @@ export default function App() {
     } else alert(error.message);
   };
 
+  // MODIFICAR NOMBRE DE CLIENTE DIRECTO EN VENTA PENDIENTE
+  const actualizarClienteVenta = async (ventaId, nuevoCliente) => {
+    await supabase.from('ventas').update({ cliente: nuevoCliente.trim() || 'Venta Mostrador' }).eq('id', ventaId);
+  };
+
   // CONFIRMAR Y COBRAR VENTA (PASO FINAL HACIA ESTADÍSTICAS)
   const marcarComoCobrado = async (ventaId) => {
     const { error } = await supabase.from('ventas').update({ cobrado: true }).eq('id', ventaId);
@@ -409,7 +414,7 @@ export default function App() {
     const pesoPrioridad = { 'Alta': 3, 'Media': 2, 'Baja': 1 };
 
     pedidos.forEach(p => {
-      const clienteKey = p.cliente.trim().toLowerCase();
+      const clienteKey = (p.cliente || '').trim().toLowerCase();
       const prioActual = p.prioridad || 'Media';
       if (!prioridadesPorCliente[clienteKey] || pesoPrioridad[prioActual] > pesoPrioridad[prioridadesPorCliente[clienteKey]]) {
         prioridadesPorCliente[clienteKey] = prioActual;
@@ -417,7 +422,7 @@ export default function App() {
     });
 
     const pedidosConPrioridadGrupo = pedidos.map(p => {
-      const clienteKey = p.cliente.trim().toLowerCase();
+      const clienteKey = (p.cliente || '').trim().toLowerCase();
       return {
         ...p,
         prioridadEfectiva: prioridadesPorCliente[clienteKey] || p.prioridad || 'Media'
@@ -1204,10 +1209,10 @@ export default function App() {
             <form onSubmit={registrarVenta} className="bg-slate-900 p-4.5 rounded-2xl border border-slate-800 space-y-4 shadow-lg">
               
               <div>
-                <label className="text-xs font-semibold text-slate-300 block mb-1">Nombre del Cliente *</label>
+                <label className="text-xs font-semibold text-slate-300 block mb-1">Nombre del Cliente / Para Quién Es *</label>
                 <input
                   type="text"
-                  placeholder="Ej: Marcelo Michelini / Cliente de mostrador"
+                  placeholder="Ej: Marcelo Michelini"
                   value={ventaForm.cliente}
                   onChange={(e) => setVentaForm({ ...ventaForm, cliente: e.target.value })}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-emerald-500"
@@ -1328,7 +1333,7 @@ export default function App() {
               </button>
             </form>
 
-            {/* SECCIÓN DE VENTAS PENDIENTES DE COBRO CON NOMBRE DE CLIENTE */}
+            {/* SECCIÓN DE VENTAS PENDIENTES DE COBRO CON NOMBRE DE CLIENTE EDITABLE */}
             <div className="space-y-3 pt-2">
               <h3 className="text-xs font-bold text-amber-400 uppercase tracking-wider flex justify-between items-center">
                 <span>Ventas Pendientes de Cobro ({ventasPendientesCobro.length})</span>
@@ -1344,9 +1349,16 @@ export default function App() {
                   <div key={v.id} className="bg-slate-900 border border-amber-500/30 p-3.5 rounded-2xl space-y-2.5 shadow-md">
                     
                     <div className="flex justify-between items-start border-b border-slate-800 pb-2">
-                      <div>
-                        <span className="text-xs text-amber-300 font-bold block">👤 {v.cliente || 'Venta Directa'}</span>
-                        <div className="flex items-center space-x-2 mt-0.5">
+                      <div className="flex-1 pr-2">
+                        <label className="text-[10px] text-slate-400 block mb-0.5">👤 Cliente Encargo:</label>
+                        <input
+                          type="text"
+                          defaultValue={v.cliente && v.cliente !== 'Venta Directa' ? v.cliente : ''}
+                          placeholder="Nombre del Cliente..."
+                          onBlur={(e) => actualizarClienteVenta(v.id, e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-xs font-bold text-amber-300 focus:outline-none focus:border-amber-500"
+                        />
+                        <div className="flex items-center space-x-2 mt-1.5">
                           <span className="font-bold text-white text-xs">{v.piezas?.titulo || 'Pieza'}</span>
                           <span className="bg-emerald-950 text-emerald-400 border border-emerald-800 text-[10px] px-1.5 py-0.2 rounded font-mono">
                             {v.cantidad || 1} u.
@@ -1360,7 +1372,7 @@ export default function App() {
                     </div>
 
                     <div className="flex justify-between text-[11px] text-slate-400 pt-0.5">
-                      <span>Vendió / Recibió: <strong className="text-slate-200">{v.vendedor}</strong></span>
+                      <span>Vendió: <strong className="text-slate-200">{v.vendedor}</strong></span>
                       <span>Fabricó: <strong className="text-slate-200">{v.fabricante || 'NiVa'}</strong></span>
                     </div>
 
